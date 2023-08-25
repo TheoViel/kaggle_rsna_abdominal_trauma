@@ -1,3 +1,4 @@
+import torch
 import numpy as np
 from sklearn.metrics import log_loss
 
@@ -25,10 +26,13 @@ def rsna_loss(preds, truths):
     preds: list of the 5 predictions probabilities
     truths: df
     '''
-    if preds.shape[-1] == 1:
-        preds = [preds[:, 0], preds[:, 1], preds[:, : 5], preds[:, 5: 8], preds[:, 8]]
-    if isinstance(preds, torch.tensor):
+    if isinstance(preds, torch.Tensor):
         preds = preds.cpu().numpy()
+    if isinstance(preds, np.ndarray):
+        if preds.shape[-1] == 11:
+            preds = [preds[:, 0], preds[:, 1], preds[:, 2: 5], preds[:, 5: 8], preds[:, 8:]]
+        elif preds.shape[-1] == 2:
+            preds = [preds[:, 0], preds[:, 1]]
 
     losses = {}
     for i, tgt in enumerate(WEIGHTS.keys()):
@@ -45,7 +49,8 @@ def rsna_loss(preds, truths):
         truth = truths[tgt].values
         sample_weight = truths[tgt].map(WEIGHTS[tgt]).values
         
-        print(tgt, sample_weight)
+#         print(tgt, sample_weight)
+#         print(pred.shape)
 
         if pred.shape[-1] in [2, 3]:  # softmax
             pred = pred / pred.sum(1, keepdims=True)
@@ -55,5 +60,9 @@ def rsna_loss(preds, truths):
         
         loss = log_loss(truth, pred, sample_weight=sample_weight, labels=labels)
         losses[tgt] = loss
+        
+        if len(preds) == 2:
+            if tgt == "extravasation_injury":
+                break
 
     return losses, np.mean(list(losses.values()))

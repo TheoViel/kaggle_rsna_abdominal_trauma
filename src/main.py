@@ -81,7 +81,7 @@ class Config:
 
     # Data
     resize = (512, 512)
-    aug_strength = 1
+    aug_strength = 3
     pos_prop = 0.1
 
     # k-fold
@@ -90,7 +90,7 @@ class Config:
     selected_folds = [0]  # , 1, 2, 3]
 
     # Model
-    name = "tf_efficientnet_b0"
+    name = "tf_efficientnetv2_s"
     pretrained_weights = None # PRETRAINED_WEIGHTS[name]  # None
     
     num_classes = 2
@@ -134,10 +134,9 @@ class Config:
         "weight_decay": 0.,
     }
 
-    epochs = 10
+    epochs = 50
 
     use_fp16 = True
-
     verbose = 1
     verbose_eval = 50
     
@@ -221,8 +220,15 @@ if __name__ == "__main__":
         print("\n -> Training\n")
 
     from training.main import k_fold
-#     df = df.head(1000)
     k_fold(config, df_patient, df_img, log_folder=log_folder, run=run)
+    
+#     if config.local_rank == 0:
+#         print("\n -> Extracting features\n")
+    
+#     from inference.extract_features import kfold_inference
+#     kfold_inference(
+#         df_patient, df_img, log_folder, use_fp16=config.use_fp16, save=True, distributed=True, config=config
+#     )
 
     if config.local_rank == 0:
         print("\nDone !")

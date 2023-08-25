@@ -9,7 +9,7 @@ DEVICE = "cuda"
 NEPTUNE_PROJECT = "KagglingTheo/RSNA-Abdominal-Trauma-Detection"
 
 PATIENT_TARGETS = ["bowel_injury", "extravasation_injury", "kidney", "liver", "spleen"]
-IMAGE_TARGETS = ["bowel_injury", "extravasion_injury"]
+IMAGE_TARGETS = ["bowel_injury", "extravasation_injury"]
 
 
 WEIGHTS = {
