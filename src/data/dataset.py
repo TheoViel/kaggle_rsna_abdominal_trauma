@@ -170,3 +170,60 @@ class Abdominal2DInfDataset(Dataset):
             image = transformed["image"]
 
         return image, 0, 0
+
+    
+class PatientFeatureDataset(Dataset):
+    def __init__(self, df_patient, df_img, exp_folders, max_len=None):
+        self.df_patient = df_patient
+        self.fts = self.retrieve_features(df_img, exp_folders)
+        self.ids = list(self.fts.keys())
+        self.max_len = max_len
+
+    @staticmethod
+    def retrieve_features(df, exp_folders):
+        features_dict = {}
+        for fold in sorted(df['fold'].unique()):
+            df_val = df[df['fold'] == fold].reset_index(drop=True)
+            fts = np.concatenate([
+                np.load(exp_folder + f"fts_val_{fold}.npy")  for exp_folder in exp_folders
+            ], axis=1)
+
+            df_val["index"] = np.arange(len(df_val))
+            slice_starts = df_val.groupby(['patient_id', 'series'])['index'].min().to_dict()
+            slice_ends = (df_val.groupby(['patient_id', 'series'])['index'].max() + 1).to_dict()
+
+            for k in slice_starts.keys():
+                start = slice_starts[k]
+                end = slice_ends[k]
+
+                if df_val['frame'][start] < df_val['frame'][end - 1]:
+                    features_dict[k] = fts[start: end]
+                else:
+                    features_dict[k] = fts[start: end][::-1]
+        return features_dict
+
+    def pad(self, x):
+        length = x.shape[0]
+        if length > self.max_len:
+            return x[: self.max_len]
+        else:
+            padded = np.zeros([self.max_len] + list(x.shape[1:]))
+            padded[:length] = x
+            return padded
+        
+    def __len__(self):
+        return len(self.fts)
+
+    def __getitem__(self, idx):
+        
+        patient_study = self.ids[idx]
+
+        fts = self.fts[patient_study]
+        if self.max_len is not None:
+            fts = self.pad(fts)
+        fts = torch.from_numpy(fts).float()
+        
+        y = self.df_patient[self.df_patient['patient_id'] == patient_study[0]][PATIENT_TARGETS].values[0]
+        y = torch.from_numpy(y).float()  # bowel, extravasion, kidney, liver, spleen
+
+        return fts, y, 0

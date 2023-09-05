@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import pandas as pd
 from sklearn.metrics import log_loss
 
 
@@ -66,3 +67,20 @@ def rsna_loss(preds, truths):
                 break
 
     return losses, np.mean(list(losses.values()))
+
+
+def rsna_score_study(preds, dataset):
+    patients = [d[0] for d in dataset.ids]
+    df_preds = pd.DataFrame({"patient_id": patients})
+    
+    preds_cols = []
+    for i in range(preds.shape[1]):
+        preds_cols.append(f'pred_{i}')
+        df_preds[f'pred_{i}'] = preds[:, i]
+        
+    df_preds = df_preds.groupby('patient_id').mean()
+    
+    df = dataset.df_patient.merge(df_preds, on="patient_id")
+    preds = df[preds_cols].values
+
+    return rsna_loss(preds, df)

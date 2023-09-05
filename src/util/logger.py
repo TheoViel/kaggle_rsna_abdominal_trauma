@@ -152,7 +152,7 @@ def init_neptune(config, log_folder):
         Neptune run: Run.
     """
     print()
-    run = neptune.init_run(project=NEPTUNE_PROJECT)
+    run = neptune.init_run(project=NEPTUNE_PROJECT, git_ref=neptune.types.GitRef.DISABLED)
 
     run["global/log_folder"] = log_folder
 

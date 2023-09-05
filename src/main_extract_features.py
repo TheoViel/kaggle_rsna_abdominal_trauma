@@ -14,7 +14,7 @@ from params import DATA_PATH
 if __name__ == "__main__":
     warnings.simplefilter("ignore", UserWarning)
 
-    EXP_FOLDER = "../logs/2023-08-25/5/"
+    EXP_FOLDER = "../logs/2023-08-27/3/"
     
     config = Config(json.load(open(EXP_FOLDER + "config.json", "r")))
     init_distributed(config)

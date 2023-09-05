@@ -87,7 +87,7 @@ class Config:
     # k-fold
     k = 4
     folds_file = f"../input/folds_{k}.csv"
-    selected_folds = [0]  # , 1, 2, 3]
+    selected_folds = [0, 1, 2, 3]
 
     # Model
     name = "tf_efficientnetv2_s"
@@ -104,7 +104,7 @@ class Config:
 
     # Training    
     loss_config = {
-        "name": "image",
+        "name": "bce",
         "smoothing": 0,
         "activation": "sigmoid",
         "aux_loss_weight": 0,
@@ -134,7 +134,7 @@ class Config:
         "weight_decay": 0.,
     }
 
-    epochs = 50
+    epochs = 20
 
     use_fp16 = True
     verbose = 1
@@ -187,27 +187,27 @@ if __name__ == "__main__":
 
     df_patient, df_img = prepare_data(DATA_PATH)
 
-    try:
-        print(torch_performance_linter)  # noqa
-        if config.local_rank == 0:
-            print("Using TPL\n")
-        run = None
-        config.epochs = 1
-        log_folder = None
-    except Exception:
-        run = None
-        if config.local_rank == 0:
-            run = init_neptune(config, log_folder)
+#     try:
+#         print(torch_performance_linter)  # noqa
+#         if config.local_rank == 0:
+#             print("Using TPL\n")
+#         run = None
+#         config.epochs = 1
+#         log_folder = None
+#     except Exception:
+    run = None
+    if config.local_rank == 0:
+        run = init_neptune(config, log_folder)
 
-            if args.fold > -1:
-                config.selected_folds = [args.fold]
-                create_logger(directory=log_folder, name=f"logs_{args.fold}.txt")
-            else:
-                create_logger(directory=log_folder, name="logs.txt")
+        if args.fold > -1:
+            config.selected_folds = [args.fold]
+            create_logger(directory=log_folder, name=f"logs_{args.fold}.txt")
+        else:
+            create_logger(directory=log_folder, name="logs.txt")
 
-            save_config(config, log_folder + "config.json")
-            if run is not None:
-                run["global/config"].upload(log_folder + "config.json")
+        save_config(config, log_folder + "config.json")
+        if run is not None:
+            run["global/config"].upload(log_folder + "config.json")
 
     if config.local_rank == 0:
         print("Device :", torch.cuda.get_device_name(0), "\n")

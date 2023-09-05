@@ -54,6 +54,7 @@ class PatientLoss(nn.Module):
         self.eps = eps
         self.ce = SmoothCrossEntropyLoss(eps=eps)
         self.bce = nn.BCEWithLogitsLoss(reduction="none")
+        self.bce_nologits = nn.BCELoss(reduction="none")
 
     def forward(self, inputs, targets):
         """
@@ -64,8 +65,8 @@ class PatientLoss(nn.Module):
         Returns:
             torch tensor [bs]: Loss values.
         """
-        assert targets.size(-1) == 5, "Wrong target size"
-        assert inputs.size(-1) == 11, "Wrong input size"
+        assert (targets.size(1) == 5) and (len(targets.size()) == 2), "Wrong target size"
+        assert (inputs.size(1) == 11) and (len(inputs.size()) == 2), "Wrong input size"
         
         bowel_pred =  inputs[:, 0]
         bowel_target =  targets[:, 0]
@@ -107,13 +108,24 @@ class PatientLoss(nn.Module):
 #         print(spleen_w)
 #         print(spleen_loss)
         
-        # TODO
-#         any_target = (targets.max(-1) > 0).astype(float)
-#         any_pred = 
+        any_target = (targets.amax(-1) > 0).float()
+        any_pred = torch.stack(
+            [
+                bowel_pred.sigmoid(),
+                extravasion_pred.sigmoid(),
+                1 - kidney_pred.softmax(-1)[:, 0],
+                1 - liver_pred.softmax(-1)[:, 0],
+                1 - spleen_pred.softmax(-1)[:, 0]
+            ]
+        ).amax(0)
+
+        any_w = (any_target * 5) + 1  # 1, 6
+#         any_loss = self.bce_nologits(any_pred, any_target) * any_w
+        any_loss = - any_w * (any_target * torch.log(any_pred) + (1 - any_target) * torch.log(1 - any_pred))
 
         loss = (
-            bowel_loss + extravasion_loss + kidney_loss + liver_loss + spleen_loss
-        ) * 1 / 5
+            bowel_loss + extravasion_loss + kidney_loss + liver_loss + spleen_loss + any_loss
+        ) * 1 / 6
     
         return loss
 

@@ -12,6 +12,7 @@ from training.losses import AbdomenLoss
 from training.mix import Mixup, Cutmix
 from training.optim import define_optimizer
 from util.torch import sync_across_gpus
+from util.metrics import rsna_score_study
 
 
 def evaluate(
@@ -166,8 +167,7 @@ def fit(
             data_config["num_classes"]
         )
 
-    auc = 0
-    rsna_loss = 0
+    auc, rsna_loss = 0, 0
     step, step_ = 1, 1
     avg_losses, dices = [], {}
     start_time = time.time()
@@ -188,6 +188,8 @@ def fit(
 
             with torch.cuda.amp.autocast(enabled=use_fp16):
                 y_pred, y_pred_aux = model(img)
+                
+#                 print(y_pred.size(), y_pred_aux.size(), y.size(), y_aux.size())
                 loss = loss_fct(y_pred, y_pred_aux, y, y_aux)
 
             scaler.scale(loss).backward()
@@ -245,12 +247,17 @@ def fit(
                             for i in range(preds.shape[1])
                         ])
                     else:  # TODO
-                        rsna_loss = 0
+                        rsna_losses, rsna_loss = rsna_score_study(preds, val_dataset)
+
 
                     s = f"Epoch {epoch:02d}/{epochs:02d} (step {step_:04d}) \t"
                     s = s + f"lr={lr:.1e} \t t={dt:.0f}s  \t loss={avg_loss:.3f}"
                     s = s + f"\t val_loss={avg_val_loss:.3f}" if avg_val_loss else s
                     s = s + f"    auc={auc:.3f}" if auc else s
+                    s = s + f"    rsna_loss={rsna_loss:.3f}" if rsna_loss else s
+                        
+#                     for k in ['extravasation_injury', 'bowel_injury']:
+#                         s += f"\t{k.split('_')[0][:8]}_loss={rsna_losses[k]:.3f}"
 
                     print(s)
 
