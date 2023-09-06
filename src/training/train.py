@@ -184,6 +184,7 @@ def fit(
             y_aux = y_aux.cuda()
 
             if np.random.random() < data_config["mix_proba"]:
+                raise NotImplementedError
                 img, y, y_aux = mix(img, y, y_aux)
 
             with torch.cuda.amp.autocast(enabled=use_fp16):
@@ -241,7 +242,7 @@ def fit(
                     step_ = step * world_size
 
                     preds, preds_aux = preds[:len(val_dataset)], preds_aux[:len(val_dataset)]
-                    if preds.shape[1] == 2:  # image level
+                    if preds.shape[1] in [2, 5]:  # image level or seg-cls
                         auc = np.mean([
                             roc_auc_score(val_dataset.img_targets[:, i], preds[:, i])
                             for i in range(preds.shape[1])

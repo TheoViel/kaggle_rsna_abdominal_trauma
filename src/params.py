@@ -10,7 +10,7 @@ NEPTUNE_PROJECT = "KagglingTheo/RSNA-Abdominal-Trauma-Detection"
 
 PATIENT_TARGETS = ["bowel_injury", "extravasation_injury", "kidney", "liver", "spleen"]
 IMAGE_TARGETS = ["bowel_injury", "extravasation_injury"]
-
+SEG_TARGETS = ['pixel_count_liver', 'pixel_count_spleen', 'pixel_count_left-kidney', 'pixel_count_right-kidney', 'pixel_count_bowel']
 
 WEIGHTS = {
     'bowel_injury': {0: 1, 1: 2},

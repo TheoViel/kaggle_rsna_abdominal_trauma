@@ -6,7 +6,7 @@ import pandas as pd
 from torch.utils.data import Dataset
 
 from data.transforms import get_transfos
-from params import PATIENT_TARGETS, IMAGE_TARGETS
+from params import PATIENT_TARGETS, IMAGE_TARGETS, SEG_TARGETS
 
 from tqdm import tqdm
 
@@ -95,7 +95,6 @@ class Abdominal2DDataset(Dataset):
                 ]
                 row = df_neg.iloc[np.random.choice(len(df_neg))]
         else:  # sample an image with y_patient[:2] == y_img ?? - should probably sample in segmentation
-#             print(df_img[IMAGE_TARGETS].max().max())
             if df_img[IMAGE_TARGETS].max().max() and (idx % int(1 / self.pos_prop)):  # positive
                 # positive + first series
                 df_img = df_img[df_img[IMAGE_TARGETS].max(1) > 0].reset_index(drop=True)
@@ -106,7 +105,6 @@ class Abdominal2DDataset(Dataset):
 
             row = df_img.iloc[len(df_img) // 2]  # center
 
-#         print(row)
         
         image = cv2.imread(row.path)
         image = image.astype(np.float32) / 255.0
@@ -227,3 +225,76 @@ class PatientFeatureDataset(Dataset):
         y = torch.from_numpy(y).float()  # bowel, extravasion, kidney, liver, spleen
 
         return fts, y, 0
+
+
+class SegDataset(Dataset):
+    """
+    Custom dataset for Segmentation data.
+    """
+
+    def __init__(
+        self,
+        df,
+        for_classification=False,
+        transforms=None,
+    ):
+        """
+        Constructor.
+
+        Args:
+            df (pandas DataFrame): Metadata containing information about the dataset.
+            transforms (albu transforms, optional): Transforms to apply to images and masks. Defaults to None.
+            use_soft_mask (bool, optional): Whether to use the soft mask or not. Defaults to False.
+            use_shape_descript (bool, optional): Whether to use shape descriptors. Defaults to False.
+            use_pl_masks (bool, optional): Whether to use pseudo-label masks. Defaults to False.
+            frames (int or list, optional): Frame(s) to use for the false-color image. Defaults to 4.
+            use_ext_data (bool, optional): Whether to use external data. Defaults to False.
+            aug_strength (int, optional): Augmentation strength for external data. Defaults to 1.
+        """
+        self.df = df
+        self.transforms = transforms
+        self.for_classification = for_classification
+
+        self.img_paths = df["img_path"].values
+        self.mask_paths = df["mask_path"].values
+
+        self.img_targets = df[SEG_TARGETS].values > 100
+
+
+    def __len__(self):
+        """
+        Get the length of the dataset.
+
+        Returns:
+            int: Length of the dataset.
+        """
+        return len(self.img_paths)
+
+    def __getitem__(self, idx):
+        """
+        Item accessor.
+
+        Args:
+            idx (int): Index.
+
+        Returns:
+            torch.Tensor: Image as a tensor of shape [C, H, W].
+            torch.Tensor: Mask as a tensor of shape [1 or 7, H, W].
+            torch.Tensor: Label as a tensor of shape [1].
+        """
+        image = cv2.imread(self.img_paths[idx]).astype(np.float32) / 255.  # 3 frames ?
+        
+        y = torch.tensor(self.img_targets[idx], dtype=torch.float)
+
+        if not self.for_classification:
+            mask = cv2.imread(self.mask_paths[idx], 0)
+            
+            transformed = self.transforms(image=image, mask=mask)
+            image = transformed["image"]
+            mask = transformed["mask"]
+            mask = mask.unsqueeze(0).float()
+            
+            return image, mask, y
+        
+        image = self.transforms(image=image)["image"]
+        return image, y, 0

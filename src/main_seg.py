@@ -5,11 +5,10 @@ import warnings
 import argparse
 import pandas as pd
 
-from data.preparation import prepare_data
 from util.torch import init_distributed
 from util.logger import create_logger, save_config, prepare_log_folder, init_neptune
 
-from params import DATA_PATH
+from params import DATA_PATH, SEG_TARGETS
 
 
 def parse_args():
@@ -82,7 +81,7 @@ class Config:
     # Data
     resize = (512, 512)
     aug_strength = 3
-    pos_prop = 0.1
+    for_classification = True
 
     # k-fold
     k = 4
@@ -91,9 +90,9 @@ class Config:
 
     # Model
     name = "tf_efficientnetv2_s"
-    pretrained_weights = None # PRETRAINED_WEIGHTS[name]  # None
+    pretrained_weights = None
     
-    num_classes = 2
+    num_classes = 5
     num_classes_aux = 0
     drop_rate = 0
     drop_path_rate = 0
@@ -104,7 +103,7 @@ class Config:
 
     # Training    
     loss_config = {
-        "name": "image",
+        "name": "bce",
         "smoothing": 0,
         "activation": "sigmoid",
         "aux_loss_weight": 0,
@@ -127,14 +126,14 @@ class Config:
 
     optimizer_config = {
         "name": "AdamW",
-        "lr": 5e-4,
+        "lr": 1e-3,
         "warmup_prop": 0.,
         "betas": (0.9, 0.999),
         "max_grad_norm": 10.,
         "weight_decay": 0.,
     }
 
-    epochs = 20
+    epochs = 2
 
     use_fp16 = True
     verbose = 1
@@ -185,19 +184,9 @@ if __name__ == "__main__":
         config.data_config["batch_size"] = args.batch_size
         config.data_config["val_bs"] = args.batch_size
 
-    df_patient, df_img = prepare_data(DATA_PATH)
-
-#     try:
-#         print(torch_performance_linter)  # noqa
-#         if config.local_rank == 0:
-#             print("Using TPL\n")
-#         run = None
-#         config.epochs = 1
-#         log_folder = None
-#     except Exception:
     run = None
     if config.local_rank == 0:
-        run = init_neptune(config, log_folder)
+#         run = init_neptune(config, log_folder)
 
         if args.fold > -1:
             config.selected_folds = [args.fold]
@@ -219,16 +208,12 @@ if __name__ == "__main__":
         )
         print("\n -> Training\n")
 
-    from training.main import k_fold
-    k_fold(config, df_patient, df_img, log_folder=log_folder, run=run)
-    
-#     if config.local_rank == 0:
-#         print("\n -> Extracting features\n")
-    
-#     from inference.extract_features import kfold_inference
-#     kfold_inference(
-#         df_patient, df_img, log_folder, use_fp16=config.use_fp16, save=True, distributed=True, config=config
-#     )
+        
+    df = pd.read_csv(DATA_PATH + 'df_seg.csv')
+    df = df[(df[SEG_TARGETS] > 0).max(1)].reset_index(drop=True)
+
+    from training.main_seg import k_fold
+    k_fold(config, df, log_folder=log_folder, run=run)
 
     if config.local_rank == 0:
         print("\nDone !")

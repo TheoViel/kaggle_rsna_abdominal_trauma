@@ -10,13 +10,13 @@ from torch.nn.parallel import DistributedDataParallel
 from training.train import fit
 from model_zoo.models import define_model
 
-from data.dataset import Abdominal2DDataset
+from data.dataset import SegDataset
 from data.transforms import get_transfos
 
 from util.torch import seed_everything, count_parameters, save_model_weights
 
 
-def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=None, run=None):
+def train(config, df_train, df_val, fold, log_folder=None, run=None):
     """
     Trains and validate a model.
 
@@ -31,20 +31,16 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
     Returns:
         dict: Dice scores at different thresholds.
     """
-    train_dataset = Abdominal2DDataset(
+    train_dataset = SegDataset(
         df_train,
-        df_img_train,
         transforms=get_transfos(strength=config.aug_strength, resize=config.resize),
-        train=True,
-        pos_prop=config.pos_prop
+        for_classification=config.for_classification
     )
 
-    val_dataset = Abdominal2DDataset(
+    val_dataset = SegDataset(
         df_val,
-        df_img_val,
         transforms=get_transfos(augment=False, resize=config.resize),
-        train=False,
-        pos_prop=config.pos_prop
+        for_classification=config.for_classification
     )
 
     if config.pretrained_weights is not None:
@@ -122,7 +118,7 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
     return preds, preds_aux
 
 
-def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
+def k_fold(config, df, df_extra=None, log_folder=None, run=None):
     """
     Trains a k-fold.
 
@@ -138,10 +134,7 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
     """
     folds = pd.read_csv(config.folds_file)
     df = df.merge(folds, how="left")
-    df_img = df_img.merge(folds, how="left")
-    
-    pred_oof = np.zeros((len(df), config.num_classes))
-    pred_oof_aux = np.zeros((len(df), config.num_classes_aux))
+
     for fold in range(config.k):
         if fold in config.selected_folds:
             if config.local_rank == 0:
@@ -153,41 +146,20 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
             df_train = df[df['fold'] != fold].reset_index(drop=True)
             df_val = df[df['fold'] == fold].reset_index(drop=True)
             val_idx = list(df[df["fold"] == fold].index)
-            
-            df_img_train = df_img[df_img['fold'] != fold].reset_index(drop=True)
-            df_img_val = df_img[df_img['fold'] == fold].reset_index(drop=True)
 
             if len(df) <= 1000:
                 df_train, df_val = df, df
-                df_img_train, df_img_val = df_img, df_img
 
             preds, preds_aux = train(
-                config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=log_folder, run=run
+                config, df_train, df_val, fold, log_folder=log_folder, run=run
             )
-            
+
             if log_folder is None:
                 return preds, preds_aux 
 
             if config.local_rank == 0:
                 np.save(log_folder + f"pred_val_{fold}", preds)
                 df_val.to_csv(log_folder + f"df_val_{fold}.csv", index=False)
-
-                pred_oof[val_idx] = preds
-                if config.num_classes_aux:
-                    pred_oof_aux[val_idx] = preds_aux
-
-#                 if run is not None:
-#                     run[f"fold_{fold}/pred_val"].upload(
-#                         log_folder + f"df_val_{fold}.csv"
-#                     )
-
-#     if config.local_rank == 0 and len(config.selected_folds):
-#         print(f"\n\n -> CV Dice : {dice:.3f}  -  th : {th:.2f}")
-
-#         if run is not None:
-#             run["global/logs"].upload(log_folder + "logs.txt")
-#             run["global/cv"] = dice
-#             run["global/th"] = th
 
     if config.fullfit:
         for ff in range(config.n_fullfit):
@@ -201,8 +173,6 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
                 config,
                 df,
                 df.tail(100).reset_index(drop=True),
-                df_img,
-                df_img,
                 f"fullfit_{ff}",
                 log_folder=log_folder,
                 run=run,
@@ -211,5 +181,3 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
     if run is not None:
         print()
         run.stop()
-
-    return pred_oof, pred_oof_aux
