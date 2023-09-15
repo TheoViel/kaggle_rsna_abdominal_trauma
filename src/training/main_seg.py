@@ -7,12 +7,11 @@ import numpy as np
 import pandas as pd
 from torch.nn.parallel import DistributedDataParallel
 
+from params import SEG_TARGETS
 from training.train import fit
 from model_zoo.models import define_model
-
 from data.dataset import SegDataset
 from data.transforms import get_transfos
-
 from util.torch import seed_everything, count_parameters, save_model_weights
 
 
@@ -145,7 +144,10 @@ def k_fold(config, df, df_extra=None, log_folder=None, run=None):
 
             df_train = df[df['fold'] != fold].reset_index(drop=True)
             df_val = df[df['fold'] == fold].reset_index(drop=True)
-            val_idx = list(df[df["fold"] == fold].index)
+            
+            df_val = df_val[
+                (df_val[SEG_TARGETS] > 10000).max(1)
+            ].reset_index(drop=True)  # subsample for speed
 
             if len(df) <= 1000:
                 df_train, df_val = df, df

@@ -2,11 +2,12 @@ import torch
 import torch.nn as nn
 
 
-def define_model(name="rnn", ft_dim=2048, layer_dim=64, dense_dim=256, p=0.1, use_msd=False, num_classes=2, num_classes_aux=0, n_fts=0):
+def define_model(name="rnn", ft_dim=2048, layer_dim=64, n_layers=1, dense_dim=256, p=0.1, use_msd=False, num_classes=2, num_classes_aux=0, n_fts=0):
     if name == "rnn":
         return RNNModel(
             ft_dim=ft_dim,
             lstm_dim=layer_dim,
+            n_lstm=n_layers,
             dense_dim=dense_dim,
             p=p,
             use_msd=use_msd,
@@ -46,6 +47,7 @@ class RNNModel(nn.Module):
         self,
         ft_dim=64,
         lstm_dim=64,
+        n_lstm=1,
         dense_dim=64,
         p=0.1,
         use_msd=False,
@@ -55,6 +57,7 @@ class RNNModel(nn.Module):
     ):
         super().__init__()
         self.n_fts = n_fts
+        self.n_lstm = n_lstm
         self.use_msd = use_msd
         self.num_classes = num_classes
         self.num_classes_aux = num_classes_aux
@@ -62,27 +65,47 @@ class RNNModel(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(ft_dim, dense_dim),
             nn.Dropout(p=p),
-            nn.ReLU(),
+            nn.Mish(),
         )
 
         self.lstm = nn.LSTM(dense_dim, lstm_dim, batch_first=True, bidirectional=True)
-
+        
+        if self.n_lstm >= 2:
+            self.lstm_2 = nn.LSTM(lstm_dim * 2, lstm_dim, batch_first=True, bidirectional=True)
+        if self.n_lstm >= 3:
+            self.lstm_3 = nn.LSTM(lstm_dim * 2, lstm_dim, batch_first=True, bidirectional=True)
+        if self.n_lstm >= 4:
+            raise NotImplementedError
+    
         self.logits = nn.Sequential(
-            nn.Linear(lstm_dim * 4 + dense_dim * 2 + n_fts, num_classes),
+            nn.Dropout(p=p),
+            nn.Linear(lstm_dim * 4 + dense_dim * 2 + n_fts, dense_dim),
+            nn.Mish(),
+            nn.Linear(dense_dim, num_classes),
         )
 
         if num_classes_aux:
             self.logits_aux = nn.Sequential(
-                nn.Linear(lstm_dim * 2 + dense_dim + n_fts, num_classes_aux),
+                nn.Dropout(p=p),
+                nn.Linear(lstm_dim * 4 + dense_dim * 2 + n_fts, dense_dim),
+                nn.Mish(),
+                nn.Linear(dense_dim, num_classes_aux),
             )
 
         self.high_dropout = nn.Dropout(p=0.5)
 
     def forward(self, x, fts=None):
         features = self.mlp(x)
-        features2, _ = self.lstm(features)
+        features_lstm, _ = self.lstm(features)
+        
+        if self.n_lstm >= 2:
+            features_lstm, _ = self.lstm_2(features_lstm)
+        if self.n_lstm >= 3:
+            features_lstm, _ = self.lstm_3(features_lstm)
+        if self.n_lstm >= 4:
+            raise NotImplementedError
 
-        features = torch.cat([features, features2], -1)
+        features = torch.cat([features, features_lstm], -1)
 
         mean = features.mean(1)
         max_, _ = features.max(1)

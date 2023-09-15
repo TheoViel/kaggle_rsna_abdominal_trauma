@@ -10,7 +10,7 @@ from torch.nn.parallel import DistributedDataParallel
 from training.train import fit
 from model_zoo.models import define_model
 
-from data.dataset import Abdominal2DDataset
+from data.dataset import AbdominalDataset
 from data.transforms import get_transfos
 
 from util.torch import seed_everything, count_parameters, save_model_weights
@@ -31,20 +31,20 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
     Returns:
         dict: Dice scores at different thresholds.
     """
-    train_dataset = Abdominal2DDataset(
+    train_dataset = AbdominalDataset(
         df_train,
         df_img_train,
         transforms=get_transfos(strength=config.aug_strength, resize=config.resize),
+        frames_chanel=config.frames_chanel,
         train=True,
-        pos_prop=config.pos_prop
     )
 
-    val_dataset = Abdominal2DDataset(
+    val_dataset = AbdominalDataset(
         df_val,
         df_img_val,
         transforms=get_transfos(augment=False, resize=config.resize),
+        frames_chanel=config.frames_chanel,
         train=False,
-        pos_prop=config.pos_prop
     )
 
     if config.pretrained_weights is not None:
@@ -86,11 +86,11 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
 
     n_parameters = count_parameters(model)
     if config.local_rank == 0:
-        print(f"    -> {len(train_dataset)} training images")
-        print(f"    -> {len(val_dataset)} validation images")
+        print(f"    -> {len(train_dataset)} training injuries")
+        print(f"    -> {len(val_dataset)} validation injuries")
         print(f"    -> {n_parameters} trainable parameters\n")
 
-    preds, preds_aux = fit(
+    preds, metrics = fit(
         model,
         train_dataset,
         val_dataset,
@@ -119,7 +119,7 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
     torch.cuda.empty_cache()
     gc.collect()
 
-    return preds, preds_aux
+    return preds, metrics
 
 
 def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
@@ -139,9 +139,8 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
     folds = pd.read_csv(config.folds_file)
     df = df.merge(folds, how="left")
     df_img = df_img.merge(folds, how="left")
-    
-    pred_oof = np.zeros((len(df), config.num_classes))
-    pred_oof_aux = np.zeros((len(df), config.num_classes_aux))
+
+    all_metrics = []
     for fold in range(config.k):
         if fold in config.selected_folds:
             if config.local_rank == 0:
@@ -161,33 +160,33 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
                 df_train, df_val = df, df
                 df_img_train, df_img_val = df_img, df_img
 
-            preds, preds_aux = train(
+            preds, metrics = train(
                 config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=log_folder, run=run
             )
+            all_metrics.append(metrics)
             
             if log_folder is None:
-                return preds, preds_aux 
+                return
 
             if config.local_rank == 0:
                 np.save(log_folder + f"pred_val_{fold}", preds)
                 df_val.to_csv(log_folder + f"df_val_{fold}.csv", index=False)
 
-                pred_oof[val_idx] = preds
-                if config.num_classes_aux:
-                    pred_oof_aux[val_idx] = preds_aux
+    if config.local_rank == 0:
+        print(f"\n-------------   CV Scores  -------------\n")
 
-#                 if run is not None:
-#                     run[f"fold_{fold}/pred_val"].upload(
-#                         log_folder + f"df_val_{fold}.csv"
-#                     )
+        for k in all_metrics[0].keys():
+            avg = np.mean([m[k] for m in all_metrics])
+            print(f"- {k.split('_')[0][:7]} score\t: {avg:.3f}")
+            if run is not None:
+                run[f"global/{k}"] = avg
+        
+        if run is not None:
+            run["global/logs"].upload(log_folder + "logs.txt")
 
-#     if config.local_rank == 0 and len(config.selected_folds):
-#         print(f"\n\n -> CV Dice : {dice:.3f}  -  th : {th:.2f}")
-
-#         if run is not None:
-#             run["global/logs"].upload(log_folder + "logs.txt")
-#             run["global/cv"] = dice
-#             run["global/th"] = th
+            
+        np.save(log_folder + f"pred_val_{fold}", preds)
+        df_val.to_csv(log_folder + f"df_val_{fold}.csv", index=False)
 
     if config.fullfit:
         for ff in range(config.n_fullfit):
@@ -211,5 +210,3 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
     if run is not None:
         print()
         run.stop()
-
-    return pred_oof, pred_oof_aux

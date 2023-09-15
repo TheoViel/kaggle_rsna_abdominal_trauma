@@ -8,11 +8,12 @@ from sklearn.metrics import roc_auc_score
 from transformers import get_linear_schedule_with_warmup
 
 from data.loader import define_loaders
+from data.dataset import PatientFeatureDataset, AbdominalDataset
 from training.losses import AbdomenLoss
 from training.mix import Mixup, Cutmix
 from training.optim import define_optimizer
 from util.torch import sync_across_gpus
-from util.metrics import rsna_score_study
+from util.metrics import rsna_score_study, rsna_score_organs, roc_auc_score_organs
 
 
 def evaluate(
@@ -169,7 +170,7 @@ def fit(
 
     auc, rsna_loss = 0, 0
     step, step_ = 1, 1
-    avg_losses, dices = [], {}
+    avg_losses, rsna_losses = [], {}
     start_time = time.time()
     for epoch in range(1, epochs + 1):
         if distributed:
@@ -248,11 +249,14 @@ def fit(
                             for i in range(preds.shape[1])
                         ])
                     else:  # TODO
-                        rsna_losses, rsna_loss = rsna_score_study(preds, val_dataset)
-
+                        if isinstance(val_dataset, PatientFeatureDataset):
+                            rsna_losses, rsna_loss = rsna_score_study(preds, val_dataset)
+                        if isinstance(val_dataset, AbdominalDataset):
+                            rsna_losses, rsna_loss = rsna_score_organs(preds, val_dataset)
+                            auc = roc_auc_score_organs(preds, val_dataset)
 
                     s = f"Epoch {epoch:02d}/{epochs:02d} (step {step_:04d}) \t"
-                    s = s + f"lr={lr:.1e} \t t={dt:.0f}s  \t loss={avg_loss:.3f}"
+                    s = s + f"lr={lr:.1e} \t t={dt:.0f}s \t loss={avg_loss:.3f}"
                     s = s + f"\t val_loss={avg_val_loss:.3f}" if avg_val_loss else s
                     s = s + f"    auc={auc:.3f}" if auc else s
                     s = s + f"    rsna_loss={rsna_loss:.3f}" if rsna_loss else s
@@ -281,5 +285,8 @@ def fit(
 
     if distributed:
         torch.distributed.barrier()
+        
+    metrics = {"auc": auc, "rsna_loss": rsna_loss}
+    metrics.update(rsna_losses)
 
-    return preds, preds_aux
+    return preds, metrics

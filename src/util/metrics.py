@@ -1,7 +1,9 @@
 import torch
 import numpy as np
 import pandas as pd
-from sklearn.metrics import log_loss
+from sklearn.metrics import log_loss, roc_auc_score
+
+from params import PATIENT_TARGETS
 
 
 WEIGHTS = {
@@ -84,3 +86,28 @@ def rsna_score_study(preds, dataset):
     preds = df[preds_cols].values
 
     return rsna_loss(preds, df)
+
+
+def rsna_score_organs(preds, dataset, eps=1e-6):
+    preds = preds.reshape(-1, 5, preds.shape[-1]).max(1)
+    preds = np.clip(preds, eps, 1 - eps)
+    return rsna_loss(preds, dataset.df_patient)
+
+
+def roc_auc_score_organs(preds, dataset):
+    preds = preds.reshape(-1, 5, preds.shape[-1]).max(1)
+    mapping = {'bowel_injury': 0, 'extravasation_injury': 1, 'kidney': 2, 'liver': 5, 'spleen': 8}
+    aucs = []
+    for tgt in PATIENT_TARGETS:
+        if "injury" in tgt:
+            auc = roc_auc_score(dataset.df_patient[tgt] > 0, preds[:, mapping[tgt]])
+        else:
+#             try:
+            auc = roc_auc_score(dataset.df_patient[tgt] <= 0, preds[:, mapping[tgt]])
+#             except:
+#                 pass
+
+        aucs.append(auc)
+    return np.mean(aucs)
+    
+    

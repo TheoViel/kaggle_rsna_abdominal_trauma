@@ -11,7 +11,7 @@ from training.train import fit
 from model_zoo.models_lvl2 import define_model
 
 from data.dataset import PatientFeatureDataset
-
+from util.metrics import rsna_loss
 from util.torch import seed_everything, count_parameters, save_model_weights
 
 
@@ -48,6 +48,7 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
         config.name,
         ft_dim=config.ft_dim,
         layer_dim=config.layer_dim,
+        n_layers=config.n_layers,
         dense_dim=config.dense_dim,
         p=config.p,
         use_msd=config.use_msd,
@@ -69,8 +70,8 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
 
     n_parameters = count_parameters(model)
     if config.local_rank == 0:
-        print(f"    -> {len(train_dataset)} training images")
-        print(f"    -> {len(val_dataset)} validation images")
+        print(f"    -> {len(train_dataset)} training studies")
+        print(f"    -> {len(val_dataset)} validation studies")
         print(f"    -> {n_parameters} trainable parameters\n")
 
     preds, preds_aux = fit(
@@ -123,7 +124,7 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
     df = df.merge(folds, how="left")
     df_img = df_img.merge(folds, how="left")
     
-#     pred_oof, pred_oof_aux = [], []
+    pred_oof, pred_oof_aux = [], []
 #     pred_oof = np.zeros((len(df), config.num_classes))
 #     pred_oof_aux = np.zeros((len(df), config.num_classes_aux))
     for fold in range(config.k):
@@ -156,27 +157,24 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
                 np.save(log_folder + f"pred_val_{fold}", preds)
                 df_val.to_csv(log_folder + f"df_val_{fold}.csv", index=False)
 
-#                 pred_oof[val_idx] = preds
-#                 if config.num_classes_aux:
-#                     pred_oof_aux[val_idx] = preds_aux
+    if config.local_rank == 0:
+        df_oof, pred_oof = retrieve_preds(df, df_img, config, log_folder)
+        
+        np.save(log_folder + "pred_oof.npy", pred_oof)
+        df_oof.to_csv(log_folder + "df_oof.csv", index=False)
 
-#                 if run is not None:
-#                     run[f"fold_{fold}/pred_val"].upload(
-#                         log_folder + f"df_val_{fold}.csv"
-#                     )
+        losses, avg_loss = rsna_loss(pred_oof, df_oof)
 
-#     if config.local_rank == 0:
-#         np.save(log_folder + "pred_oof", pred_oof)
-#         np.save(log_folder + "pred_oof_aux", pred_oof_aux)
+        print()
+        for k, v in losses.items():
+            print(f"- {k.split('_')[0][:8]} loss\t: {v:.3f}")
+        print(f'\n -> CV Score : {avg_loss :.3f}')
 
-                
-#     if config.local_rank == 0 and len(config.selected_folds):
-#         print(f"\n\n -> CV Dice : {dice:.3f}  -  th : {th:.2f}")
-
-#         if run is not None:
-#             run["global/logs"].upload(log_folder + "logs.txt")
-#             run["global/cv"] = dice
-#             run["global/th"] = th
+        if run is not None:
+            run["global/logs"].upload(log_folder + "logs.txt")
+            run["global/cv"] = avg_loss
+            for k, v in losses.items():
+                run[f"global/{k}"] = v
 
     if config.fullfit:
         for ff in range(config.n_fullfit):
@@ -202,3 +200,30 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
         run.stop()
 
     return pred_oof, pred_oof_aux
+
+
+def retrieve_preds(df_patient, df_img, config, exp_folder):
+    dfs = []
+    for fold in config.selected_folds:
+
+        df_val = df_patient[df_patient['fold'] == fold]
+
+        dataset = PatientFeatureDataset(df_val, df_img[df_img['fold'] == fold], config.exp_folders)
+        patients = [d[0] for d in dataset.ids]
+        df_preds = pd.DataFrame({"patient_id": patients})
+
+        preds = np.load(exp_folder + f"pred_val_{fold}.npy")
+
+        preds_cols = []
+        for i in range(preds.shape[1]):
+            preds_cols.append(f'pred_{i}')
+            df_preds[f'pred_{i}'] = preds[:, i]
+
+        df_preds = df_preds.groupby('patient_id').mean()
+        df = df_val.merge(df_preds, on="patient_id")
+        dfs.append(df)
+
+    df_oof = pd.concat(dfs, ignore_index=True)
+    pred_oof = df_oof[preds_cols].values
+
+    return df_oof, pred_oof

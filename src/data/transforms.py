@@ -88,7 +88,7 @@ def get_transfos(augment=True, resize=None, mean=0, std=1, strength=1):
     if augment:
         if strength == 0:
             augs = [
-#                 albu.HorizontalFlip(p=0.5),
+                albu.HorizontalFlip(p=0.5),
             ]
         elif strength == 1:
             augs = [
@@ -101,7 +101,7 @@ def get_transfos(augment=True, resize=None, mean=0, std=1, strength=1):
                 ),
                 color_transforms(p=0.5),
             ]
-        elif strength == 2:  # best v2-s
+        elif strength == 2:
             augs = [
                 albu.HorizontalFlip(p=0.5),
                 albu.ShiftScaleRotate(
@@ -112,7 +112,7 @@ def get_transfos(augment=True, resize=None, mean=0, std=1, strength=1):
                 ),
                 color_transforms(p=0.5),
             ]
-        elif strength == 3:  # best b3
+        elif strength == 3:
             augs = [
                 albu.HorizontalFlip(p=0.5),
                 albu.ShiftScaleRotate(
@@ -124,6 +124,19 @@ def get_transfos(augment=True, resize=None, mean=0, std=1, strength=1):
                 color_transforms(p=0.5),
                 blur_transforms(p=0.25),
                 distortion_transforms(p=0.25),
+            ]
+        elif strength == 4:
+            augs = [
+                albu.HorizontalFlip(p=0.5),
+                albu.ShiftScaleRotate(
+                    scale_limit=0.2,
+                    shift_limit=0.1,
+                    rotate_limit=45,
+                    p=0.75,
+                ),
+                color_transforms(p=0.75),
+                blur_transforms(p=0.5),
+                distortion_transforms(p=0.5),
             ]
     else:
         augs = []

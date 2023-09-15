@@ -1,6 +1,7 @@
 import json
 import torch
 import numpy as np
+import pandas as pd
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from sklearn.metrics import roc_auc_score
@@ -158,6 +159,11 @@ def kfold_inference(
     """
     if config is None:
         config = Config(json.load(open(exp_folder + "config.json", "r")))
+        
+    if "fold" not in df_patient.columns:
+        folds = pd.read_csv(config.folds_file)
+        df_patient = df_patient.merge(folds, how="left")
+        df_img = df_img.merge(folds, how="left")
 
     preds = []
     for fold in config.selected_folds:
@@ -192,9 +198,12 @@ def kfold_inference(
         df_val = df_img[df_img['fold'] == fold].reset_index(drop=True) if "fold" in df_img.columns else df_img
 #         df_val = df_val.head(10000).reset_index(drop=True)
 
+#         all_fts = []
+#         for study, df_study in df_val.groupby('study'):
         dataset = Abdominal2DInfDataset(
             df_val,
             transforms=get_transfos(augment=False, resize=config.resize),
+            frames_chanel=config.frames_chanel if hasattr(config, "frames_chanel") else 0,
         )
 
         if distributed:
@@ -212,6 +221,7 @@ def kfold_inference(
             if config.local_rank == 0:
                 pred, fts = pred[:len(dataset)], fts[:len(dataset)]
         else:
+            print('\nWarning, this is slow !\n')
             pred, fts = predict(
                 model,
                 dataset,
@@ -220,6 +230,9 @@ def kfold_inference(
                 use_fp16=use_fp16,
                 num_workers=num_workers,
             )
+
+#         all_fts.append(fts)
+#         fts = np.concatenate(all_fts)
 
         if save and config.local_rank == 0:
             np.save(exp_folder + f"pred_val_{fold}.npy", pred)

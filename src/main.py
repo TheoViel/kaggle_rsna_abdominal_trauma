@@ -7,7 +7,7 @@ import pandas as pd
 
 from data.preparation import prepare_data
 from util.torch import init_distributed
-from util.logger import create_logger, save_config, prepare_log_folder, init_neptune
+from util.logger import create_logger, save_config, prepare_log_folder, init_neptune, get_last_log_folder
 
 from params import DATA_PATH
 
@@ -81,8 +81,9 @@ class Config:
 
     # Data
     resize = (512, 512)
-    aug_strength = 3
-    pos_prop = 0.1
+    frames_chanel = 3
+    aug_strength = 4
+#     pos_prop = 0.1
 
     # k-fold
     k = 4
@@ -92,11 +93,11 @@ class Config:
     # Model
     name = "tf_efficientnetv2_s"
     pretrained_weights = None # PRETRAINED_WEIGHTS[name]  # None
-    
-    num_classes = 2
+
+    num_classes = 11
     num_classes_aux = 0
-    drop_rate = 0
-    drop_path_rate = 0
+    drop_rate = 0.
+    drop_path_rate = 0.
     n_channels = 3
     reduce_stride = False
     replace_pad_conv = False
@@ -104,19 +105,21 @@ class Config:
 
     # Training    
     loss_config = {
-        "name": "image",
-        "smoothing": 0,
-        "activation": "sigmoid",
-        "aux_loss_weight": 0,
+        "name": "patient",
+        "weighted": False,
+        "use_any": False,
+        "smoothing": 0.,
+        "activation": "patient",
+        "aux_loss_weight": 0.,
         "name_aux": "patient",
-        "smoothing_aux": 0,
+        "smoothing_aux": 0.,
         "activation_aux": "",
         "ousm_k": 0,  # todo ?
     }
 
     data_config = {
-        "batch_size": 16,
-        "val_bs": 16,
+        "batch_size": 32,
+        "val_bs": 32,
         "mix": "mixup",
         "mix_proba": 0.,
         "mix_alpha": 4.,
@@ -126,7 +129,7 @@ class Config:
     }
 
     optimizer_config = {
-        "name": "AdamW",
+        "name": "Ranger",
         "lr": 5e-4,
         "warmup_prop": 0.,
         "betas": (0.9, 0.999),
@@ -168,6 +171,10 @@ if __name__ == "__main__":
         if config.local_rank == 0:
             log_folder = prepare_log_folder(LOG_PATH)
             print(f'\n -> Logging results to {log_folder}\n')
+        else:
+            time.sleep(1)
+            log_folder = get_last_log_folder(LOG_PATH)
+
 
     if args.model:
         config.name = args.model
@@ -221,14 +228,15 @@ if __name__ == "__main__":
 
     from training.main import k_fold
     k_fold(config, df_patient, df_img, log_folder=log_folder, run=run)
-    
-#     if config.local_rank == 0:
-#         print("\n -> Extracting features\n")
-    
-#     from inference.extract_features import kfold_inference
-#     kfold_inference(
-#         df_patient, df_img, log_folder, use_fp16=config.use_fp16, save=True, distributed=True, config=config
-#     )
+
+    if len(config.selected_folds) == 4:
+        if config.local_rank == 0:
+            print("\n -> Extracting features\n")
+
+        from inference.extract_features import kfold_inference
+        kfold_inference(
+            df_patient, df_img, log_folder, use_fp16=config.use_fp16, save=True, distributed=True, config=config
+        )
 
     if config.local_rank == 0:
         print("\nDone !")

@@ -137,7 +137,7 @@ class Config:
 
     use_fp16 = True
     verbose = 1
-    verbose_eval = 50
+    verbose_eval = 100
     
     fullfit = False
     n_fullfit = 1
@@ -210,7 +210,7 @@ if __name__ == "__main__":
 
         
     df = pd.read_csv(DATA_PATH + 'df_seg.csv')
-    df = df[(df[SEG_TARGETS] > 0).max(1)].reset_index(drop=True)
+#     df = df[(df[SEG_TARGETS] > 0).max(1)].reset_index(drop=True)
 
     from training.main_seg import k_fold
     k_fold(config, df, log_folder=log_folder, run=run)

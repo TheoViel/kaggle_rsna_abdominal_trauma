@@ -44,7 +44,7 @@ class PatientLoss(nn.Module):
     """
     Cross-entropy loss with label smoothing.
     """
-    def __init__(self, eps=0.0):
+    def __init__(self, eps=0.0, weighted=True, use_any=True):
         """
         Constructor.
         Args:
@@ -55,6 +55,8 @@ class PatientLoss(nn.Module):
         self.ce = SmoothCrossEntropyLoss(eps=eps)
         self.bce = nn.BCEWithLogitsLoss(reduction="none")
         self.bce_nologits = nn.BCELoss(reduction="none")
+        self.weighted = weighted
+        self.use_any = use_any
 
     def forward(self, inputs, targets):
         """
@@ -70,7 +72,8 @@ class PatientLoss(nn.Module):
         
         bowel_pred =  inputs[:, 0]
         bowel_target =  targets[:, 0]
-        bowel_w = bowel_target + 1  # 1, 2
+        
+        bowel_w = bowel_target + 1 if self.weighted else 1  # 1, 2
         bowel_loss = self.bce(bowel_pred, bowel_target) * bowel_w
         
 #         print(bowel_pred)
@@ -80,7 +83,7 @@ class PatientLoss(nn.Module):
         
         extravasion_pred =  inputs[:, 1]
         extravasion_target =  targets[:, 1]
-        extravasion_w = (extravasion_target * 5) + 1  # 1, 6
+        extravasion_w = (extravasion_target * 5) + 1 if self.weighted else 1  # 1, 6
         extravasion_loss = self.bce(extravasion_pred, extravasion_target) * extravasion_w
         
         kidney_pred =  inputs[:, 2:5]
@@ -95,37 +98,42 @@ class PatientLoss(nn.Module):
 
         liver_pred =  inputs[:, 5:8]
         liver_target =  targets[:, 3]
-        liver_w = torch.pow(2, liver_target)  # 1, 2, 4
+        liver_w = torch.pow(2, liver_target) if self.weighted else 1  # 1, 2, 4
         liver_loss = self.ce(liver_pred, liver_target) * liver_w
         
         spleen_pred =  inputs[:, 8:11]
         spleen_target =  targets[:, 4]
-        spleen_w = torch.pow(2, spleen_target)  # 1, 2, 4
+        spleen_w = torch.pow(2, spleen_target) if self.weighted else 1  # 1, 2, 4
         spleen_loss = self.ce(spleen_pred, spleen_target) * spleen_w
         
 #         print(spleen_pred)
 #         print(spleen_target)
 #         print(spleen_w)
 #         print(spleen_loss)
-        
-        any_target = (targets.amax(-1) > 0).float()
-        any_pred = torch.stack(
-            [
-                bowel_pred.sigmoid(),
-                extravasion_pred.sigmoid(),
-                1 - kidney_pred.softmax(-1)[:, 0],
-                1 - liver_pred.softmax(-1)[:, 0],
-                1 - spleen_pred.softmax(-1)[:, 0]
-            ]
-        ).amax(0)
 
-        any_w = (any_target * 5) + 1  # 1, 6
-#         any_loss = self.bce_nologits(any_pred, any_target) * any_w
-        any_loss = - any_w * (any_target * torch.log(any_pred) + (1 - any_target) * torch.log(1 - any_pred))
+        if self.use_any:
+            any_target = (targets.amax(-1) > 0).float()
+            any_pred = torch.stack(
+                [
+                    bowel_pred.sigmoid(),
+                    extravasion_pred.sigmoid(),
+                    1 - kidney_pred.softmax(-1)[:, 0],
+                    1 - liver_pred.softmax(-1)[:, 0],
+                    1 - spleen_pred.softmax(-1)[:, 0]
+                ]
+            ).amax(0)
 
-        loss = (
-            bowel_loss + extravasion_loss + kidney_loss + liver_loss + spleen_loss + any_loss
-        ) * 1 / 6
+            any_w = (any_target * 5) + 1  if self.weighted else 1  # 1, 6
+    #         any_loss = self.bce_nologits(any_pred, any_target) * any_w
+            any_loss = - any_w * (any_target * torch.log(any_pred) + (1 - any_target) * torch.log(1 - any_pred))
+
+            loss = (
+                bowel_loss + extravasion_loss + kidney_loss + liver_loss + spleen_loss + any_loss
+            ) * 1 / 6
+        else:
+            loss = (
+                bowel_loss + extravasion_loss + kidney_loss + liver_loss + spleen_loss
+            ) * 1 / 5
     
         return loss
 
@@ -223,7 +231,9 @@ class AbdomenLoss(nn.Module):
         elif config["name"] == "image":
             self.loss = ImageLoss(eps=self.eps)
         elif config["name"] == "patient":
-            self.loss = PatientLoss(eps=self.eps)
+            self.loss = PatientLoss(
+                eps=self.eps, weighted=config['weighted'], use_any=config['use_any']
+            )
         else:
             raise NotImplementedError
 
@@ -232,7 +242,9 @@ class AbdomenLoss(nn.Module):
         elif config["name_aux"] == "ce":
             self.loss_aux = SmoothCrossEntropyLoss(eps=self.eps_aux)
         elif config["name_aux"] == "patient":
-            self.loss_aux = PatientLoss(eps=self.eps_aux)
+            self.loss_aux = PatientLoss(
+                eps=self.eps_aux, weighted=config['weighted'], use_any=config['use_any']
+            )
         else:
             raise NotImplementedError
 

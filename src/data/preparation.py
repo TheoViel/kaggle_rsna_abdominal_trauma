@@ -37,7 +37,7 @@ def prepare_folds(data_path="../input/", k=4):
     return df_folds
 
 
-def prepare_data(data_path="../input/"):
+def prepare_data(data_path="../input/", with_seg=True):
     """
     Prepare data for training or evaluation.
     TODO
@@ -50,8 +50,18 @@ def prepare_data(data_path="../input/"):
     """
     df_patient = pd.read_csv(os.path.join(data_path, "df_train.csv"))
     
-    df_img = pd.read_csv(os.path.join(data_path, "df_images_train.csv"))
-    df_img = df_img.rename(columns={"patient": "patient_id"})
+    if not with_seg:
+        df_img = pd.read_csv(os.path.join(data_path, "df_images_train.csv"))
+        df_img = df_img.rename(columns={"patient": "patient_id"})
+
+    else:
+        df_img = pd.read_csv(os.path.join(data_path, "df_images_train_with_seg.csv"))
+        df_img['pred_extravasation'] = 1  # df_img[["pred_liver", "pred_spleen", "pred_bowel", "pred_kidney"]].max(1)
+        
+        df_img = df_img.merge(df_patient[["patient_id", "kidney", "liver", "spleen", "any_injury"]], how="left")
+        #"kidney_low", "kidney_high", "liver_low", "liver_high"]] for soft labels ?
+        for col in ["kidney", "liver", "spleen"]:
+            df_img[f'{col}_injury'] = (df_img[f'pred_{col}'] > 0.9) * df_img[col]
 
     return df_patient, df_img
 
