@@ -113,13 +113,13 @@ class AbdominalDataset(Dataset):
         return image, y_img, y_patient
 
 
-
 class Abdominal2DInfDataset(Dataset):
     def __init__(
         self,
         df,
         transforms=None,
         frames_chanel=False,
+        imgs={}
     ):
         """
         Constructor.
@@ -134,7 +134,7 @@ class Abdominal2DInfDataset(Dataset):
         self.frames_chanel = frames_chanel
         self.max_frames = dict(df[["series", "frame"]].groupby("series").max()['frame'])
         
-        self.imgs = {}
+        self.imgs = imgs
 
     def __len__(self):
         """
@@ -157,9 +157,6 @@ class Abdominal2DInfDataset(Dataset):
             torch.Tensor: Mask as a tensor of shape [1 or 7, H, W].
             torch.Tensor: Label as a tensor of shape [1].
         """
-#         if not (idx % 1000):  # clear buffer
-#             self.imgs = {}
-
         path, series, frame = self.df[['path', 'series', 'frame']].values[idx]
         if self.frames_chanel > 0:
             frame = np.clip(frame, self.frames_chanel, self.max_frames[series] - self.frames_chanel)
@@ -168,17 +165,27 @@ class Abdominal2DInfDataset(Dataset):
             
             image = []
             for path, frame in zip(paths, frames):
-#                 try:
-#                     img = self.imgs[path]
+                try:
+                    img = self.imgs[path]
 #                     print('!!')
-#                 except:
-                img = cv2.imread(path, 0)  # self.imgs.get(frame, cv2.imread(path, 0))
-#                     self.imgs[path] = img
+                except:
+                    img = cv2.imread(path, 0)  # self.imgs.get(frame, cv2.imread(path, 0))
+
+                    if not (idx + 1 % 10000):  # clear buffer
+                        self.imgs = {}
+                    self.imgs[path] = img
+
                 image.append(img)
             image = np.array(image).transpose(1, 2, 0)
 
         else:
-            image = cv2.imread(path)
+            try:
+                image = self.imgs[path]
+                if len(image.shape) == 2:
+                    image = np.concatenate([image[:, :, None]] * 3, -1)
+            except:
+                image = cv2.imread(path)
+
         image = image.astype(np.float32) / 255.0
 
         if self.transforms:
@@ -336,3 +343,58 @@ class SegDataset(Dataset):
         
         image = self.transforms(image=image)["image"]
         return image, y, 0
+    
+
+class PatientFeatureInfDataset(Dataset):
+    def __init__(self, series, exp_folders, max_len=None, save_folder=""):
+        self.fts = self.retrieve_features(series, exp_folders, save_folder=save_folder)
+        self.ids = [0]
+        self.max_len = max_len
+
+    @staticmethod
+    def retrieve_features(series, exp_folders, save_folder=""):
+        all_fts = []
+        exp_names = ["_".join(exp_folder.split('/')[-3:-1]) for exp_folder, _ in exp_folders]
+
+        for s in series:
+            fts = []
+            for exp_name, (exp_folder, mode) in zip(exp_names, exp_folders):
+                prefix = 'fts' if "ft" in mode else 'pred'
+                ft = np.load(save_folder + f'{s}_{exp_name}.npy')
+                fts.append(ft)
+
+                if "proba" in mode:
+                    seg = fts[0]
+                    if ft.shape[-1] == 11:
+                        fts.append(np.concatenate([
+                            ft[:, :1] * seg[:, -1:],  # bowel
+                            ft[:, 1:2] * seg.max(-1, keepdims=True),  # extravasation
+                            ft[:, 2: 5] * seg[:, 2: 4].max(-1, keepdims=True),  # kidney
+                            ft[:, 5: 8] * seg[:, :1],  # liver
+                            ft[:, 8:] * seg[:, 1:2],  # spleen
+                        ], -1))
+
+            fts = np.concatenate(fts, axis=1)
+            all_fts.append(fts)
+            
+        return all_fts
+
+    def pad(self, x):
+        length = x.shape[0]
+        if length > self.max_len:
+            return x[: self.max_len]
+        else:
+            padded = np.zeros([self.max_len] + list(x.shape[1:]))
+            padded[:length] = x
+            return padded
+        
+    def __len__(self):
+        return len(self.fts)
+
+    def __getitem__(self, idx):
+        fts = self.fts[idx]
+        if self.max_len is not None:
+            fts = self.pad(fts)
+        fts = torch.from_numpy(fts).float()
+
+        return fts, 0, 0

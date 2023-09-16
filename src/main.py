@@ -81,7 +81,7 @@ class Config:
 
     # Data
     resize = (512, 512)
-    frames_chanel = 3
+    frames_chanel = 0
     aug_strength = 4
 #     pos_prop = 0.1
 
@@ -91,7 +91,7 @@ class Config:
     selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "tf_efficientnetv2_s"
+    name = "tf_efficientnetv2_b1"
     pretrained_weights = None # PRETRAINED_WEIGHTS[name]  # None
 
     num_classes = 11

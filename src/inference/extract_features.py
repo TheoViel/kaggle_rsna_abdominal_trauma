@@ -50,7 +50,7 @@ def predict(model, dataset, loss_config, batch_size=64, device="cuda", use_fp16=
     )
 
     with torch.no_grad():
-        for img, _, _ in tqdm(loader):
+        for img, _, _ in loader:
             with torch.cuda.amp.autocast(enabled=use_fp16):
                 y_pred, ft = model(img.cuda(), return_fts=True)
 
@@ -203,7 +203,7 @@ def kfold_inference(
         dataset = Abdominal2DInfDataset(
             df_val,
             transforms=get_transfos(augment=False, resize=config.resize),
-            frames_chanel=config.frames_chanel if hasattr(config, "frames_chanel") else 0,
+            frames_chanel=0,  # config.frames_chanel if hasattr(config, "frames_chanel") else 0,
         )
 
         if distributed:
