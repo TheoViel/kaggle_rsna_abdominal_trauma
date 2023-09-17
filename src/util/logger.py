@@ -219,7 +219,13 @@ def upload_to_kaggle(folders, directory, dataset_name, update_folders=True):
             if update_folders:
                 shutil.rmtree(directory + name)
                 shutil.copytree(folder, directory + name)
-            continue
+        
+        for i in range(4):
+            try:
+                os.remove(f'{directory + name}/fts_val_{i}.npy')
+            except:
+                pass
+            
 
     print(f"\nDataset size : {get_size(directory):.3f} Go")
 

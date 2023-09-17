@@ -3,7 +3,6 @@ import glob
 import nibabel
 import numpy as np
 import pandas as pd
-from iterstrat.ml_stratifiers import MultilabelStratifiedKFold
 
 
 def prepare_folds(data_path="../input/", k=4):
@@ -25,6 +24,7 @@ def prepare_folds(data_path="../input/", k=4):
 
     df = pd.read_csv(data_path + "train.csv")
 
+    from iterstrat.ml_stratifiers import MultilabelStratifiedKFold
     mskf = mskf = MultilabelStratifiedKFold(n_splits=k, shuffle=True, random_state=42)
     splits = mskf.split(df, y=df[cols])
 
