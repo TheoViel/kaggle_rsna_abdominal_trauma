@@ -98,7 +98,10 @@ def predict_distributed(
 
     with torch.no_grad():
         for img, _, _ in tqdm(loader, disable=(local_rank!=0)):
+
             with torch.cuda.amp.autocast(enabled=use_fp16):
+                y_pred = torch.zeros((16, 5))
+                ft = torch.zeros((16, 768))
                 y_pred, ft = model(img.cuda(), return_fts=True)
 
             if loss_config["activation"] == "sigmoid":
@@ -195,15 +198,12 @@ def kfold_inference(
                 broadcast_buffers=False,
             )
 
-        df_val = df_img[df_img['fold'] == fold].reset_index(drop=True) if "fold" in df_img.columns else df_img
-#         df_val = df_val.head(10000).reset_index(drop=True)
+        df_val = df_img[df_img['fold'] == fold].reset_index(drop=True)  # if "fold" in df_img.columns else df_img
 
-#         all_fts = []
-#         for study, df_study in df_val.groupby('study'):
         dataset = Abdominal2DInfDataset(
             df_val,
             transforms=get_transfos(augment=False, resize=config.resize),
-            frames_chanel=0,  # config.frames_chanel if hasattr(config, "frames_chanel") else 0,
+            frames_chanel=config.frames_chanel if hasattr(config, "frames_chanel") else 0,
         )
 
         if distributed:
@@ -230,9 +230,6 @@ def kfold_inference(
                 use_fp16=use_fp16,
                 num_workers=num_workers,
             )
-
-#         all_fts.append(fts)
-#         fts = np.concatenate(all_fts)
 
         if save and config.local_rank == 0:
             np.save(exp_folder + f"pred_val_{fold}.npy", pred)

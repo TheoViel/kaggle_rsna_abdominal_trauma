@@ -138,6 +138,19 @@ def get_transfos(augment=True, resize=None, mean=0, std=1, strength=1):
                 blur_transforms(p=0.5),
                 distortion_transforms(p=0.5),
             ]
+        elif strength == 5:
+            augs = [
+                albu.HorizontalFlip(p=0.5),
+                albu.ShiftScaleRotate(
+                    scale_limit=0.2,
+                    shift_limit=0.1,
+                    rotate_limit=45,
+                    p=0.75,
+                ),
+                color_transforms(p=0.25),
+                blur_transforms(p=0.25),
+                distortion_transforms(p=0.5),
+            ]
     else:
         augs = []
 

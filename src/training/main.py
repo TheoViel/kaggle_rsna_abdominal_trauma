@@ -36,6 +36,7 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
         df_img_train,
         transforms=get_transfos(strength=config.aug_strength, resize=config.resize),
         frames_chanel=config.frames_chanel,
+        use_soft_target=config.use_soft_target,
         train=True,
     )
 
@@ -44,6 +45,7 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
         df_img_val,
         transforms=get_transfos(augment=False, resize=config.resize),
         frames_chanel=config.frames_chanel,
+        use_soft_target=config.use_soft_target,
         train=False,
     )
 
@@ -184,11 +186,10 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
         if run is not None:
             run["global/logs"].upload(log_folder + "logs.txt")
 
-            
         np.save(log_folder + f"pred_val_{fold}", preds)
         df_val.to_csv(log_folder + f"df_val_{fold}.csv", index=False)
 
-    if config.fullfit:
+    if config.fullfit and len(config.selected_folds) == 4:
         for ff in range(config.n_fullfit):
             if config.local_rank == 0:
                 print(

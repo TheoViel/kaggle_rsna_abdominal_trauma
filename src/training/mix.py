@@ -17,6 +17,7 @@ class Mixup(nn.Module):
         self.beta_distribution = torch.distributions.Beta(alpha, alpha)
         self.additive = additive
         self.num_classes = num_classes
+        
 
     def forward(self, x, y, y_aux=None):
         """
@@ -57,8 +58,16 @@ class Mixup(nn.Module):
             )
 
         if self.additive:
-            y = (y + y[perm]).clip(0, 1)
+            y = torch.cat([y.unsqueeze(0), y[perm].unsqueeze(0)], 0).amax(0)
+            y[:, 3] *= (1 - y[:, 4])
+            y[:, 2] = 1 - y[:, 4] - y[:, 3]
+            y[:, 6] *= (1 - y[:, 7])
+            y[:, 5] = 1 - y[:, 7] - y[:, 6]
+            y[:, 9] *= (1 - y[:, 10])
+            y[:, 8] = 1 - y[:, 10] - y[:, 9]
+
             if y_aux is not None:
+#                 raise NotImplementedError
                 y_aux = (y_aux + y_aux[perm]).clip(0, 1)
         else:
             if len(y.shape) == 1:
@@ -151,11 +160,22 @@ class Cutmix(nn.Module):
         else:
             raise NotImplementedError
 
-        # y is a mask
         n_dims = len(y.shape)
-        if n_dims == 3:  # bs x h x w
+        if n_dims == 2:  # bs x n_classes
+            if self.additive:
+                y = torch.cat([y.unsqueeze(0), y[perm].unsqueeze(0)], 0).amax(0)
+                y[:, 3] *= (1 - y[:, 4])
+                y[:, 2] = 1 - y[:, 4] - y[:, 3]
+                y[:, 6] *= (1 - y[:, 7])
+                y[:, 5] = 1 - y[:, 7] - y[:, 6]
+                y[:, 9] *= (1 - y[:, 10])
+                y[:, 8] = 1 - y[:, 10] - y[:, 9]
+            else:
+                y = coeff * y + (1 - coeff) * y[perm]
+
+        elif n_dims == 3:  # mask - bs x h x w
             y[:, bbx1:bbx2, bby1:bby2] = y[perm, bbx1:bbx2, bby1:bby2]
-        elif n_dims == 4:  # bs x classes x h x w
+        elif n_dims == 4:  # mask - bs x classes x h x w
             y[:, :, bbx1:bbx2, bby1:bby2] = y[perm, :, bbx1:bbx2, bby1:bby2]
         else:
             raise NotImplementedError

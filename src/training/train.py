@@ -184,8 +184,12 @@ def fit(
             y = y.cuda()
             y_aux = y_aux.cuda()
 
-            if np.random.random() < data_config["mix_proba"]:
-                raise NotImplementedError
+            mix_p = (
+                ((epochs - epoch) / epochs)  * data_config["mix_proba"]
+                if data_config["sched"]
+                else data_config["mix_proba"]
+            )
+            if np.random.random() < mix_p:
                 img, y, y_aux = mix(img, y, y_aux)
 
             with torch.cuda.amp.autocast(enabled=use_fp16):

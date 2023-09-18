@@ -6,8 +6,22 @@ import pandas as pd
 from tqdm import tqdm
 from torch.utils.data import Dataset
 
-from data.transforms import get_transfos
 from params import PATIENT_TARGETS, IMAGE_TARGETS, SEG_TARGETS, IMG_TARGETS_EXTENDED
+
+
+def to_one_hot_patient(y):
+    new_y = []
+    for i in range(y.size(1)):
+        if i <= 1:
+            new_y.append(y[:, i].unsqueeze(-1))
+        else:
+            y_ = (
+                torch.zeros(y.size(0), 3)
+                .to(y.device)
+                .scatter(1, y[:, i].view(-1, 1).long(), 1)
+            )
+            new_y.append(y_)
+    return torch.cat(new_y, -1)
 
 
 class AbdominalDataset(Dataset):
@@ -18,6 +32,7 @@ class AbdominalDataset(Dataset):
         transforms=None,
         frames_chanel=0,
         train=False,
+        use_soft_target=False,
     ):
         """
         Constructor.
@@ -32,6 +47,7 @@ class AbdominalDataset(Dataset):
         self.transforms = transforms
         self.frames_chanel = frames_chanel
         self.train = train
+        self.use_soft_target = use_soft_target
     
         self.targets = df_patient[PATIENT_TARGETS].values
         self.max_frames = dict(df_img[["series", "frame"]].groupby("series").max()['frame'])
@@ -106,6 +122,20 @@ class AbdominalDataset(Dataset):
 
         y_patient = torch.tensor(y_patient, dtype=torch.float)
         y_img = torch.tensor(row[IMG_TARGETS_EXTENDED], dtype=torch.float)
+        
+#         print(row)
+        
+        if y_img.size(-1) == 5:  # Patient level - TODO : y_patient ?
+            y_img = to_one_hot_patient(y_img.unsqueeze(0))[0]
+
+            if self.use_soft_target:
+                y_img[0] *= row.pred_bowel
+                y_img[3:5] *= row.pred_kidney
+                y_img[2] = 1 - y_img[3] - y_img[4]
+                y_img[6:8] *= row.pred_liver
+                y_img[5] = 1 - y_img[6] - y_img[7]
+                y_img[9:] *= row.pred_spleen
+                y_img[8] = 1 - y_img[9] - y_img[10]
 
         if image.size(0) > 3:
             image = image.view(3, -1, image.size(1), image.size(2)).transpose(0, 1)
@@ -118,7 +148,7 @@ class Abdominal2DInfDataset(Dataset):
         self,
         df,
         transforms=None,
-        frames_chanel=False,
+        frames_chanel=0,
         imgs={}
     ):
         """
@@ -130,6 +160,7 @@ class Abdominal2DInfDataset(Dataset):
             transforms (albu transforms, optional): Transforms to apply to images and masks. Defaults to None.
         """
         self.df = df
+        self.info = self.df[['path', 'series', 'frame']].values
         self.transforms = transforms
         self.frames_chanel = frames_chanel
         self.max_frames = dict(df[["series", "frame"]].groupby("series").max()['frame'])
@@ -157,7 +188,8 @@ class Abdominal2DInfDataset(Dataset):
             torch.Tensor: Mask as a tensor of shape [1 or 7, H, W].
             torch.Tensor: Label as a tensor of shape [1].
         """
-        path, series, frame = self.df[['path', 'series', 'frame']].values[idx]
+        path, series, frame = self.info[idx]
+
         if self.frames_chanel > 0:
             frame = np.clip(frame, self.frames_chanel, self.max_frames[series] - self.frames_chanel)
             frames = [frame - self.frames_chanel, frame, frame + self.frames_chanel]
@@ -186,7 +218,7 @@ class Abdominal2DInfDataset(Dataset):
             except:
                 image = cv2.imread(path)
 
-        image = image.astype(np.float32) / 255.0
+        image = image.astype(np.float32) / 255.
 
         if self.transforms:
             transformed = self.transforms(image=image)

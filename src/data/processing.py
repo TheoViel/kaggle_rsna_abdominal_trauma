@@ -8,17 +8,20 @@ def process(patient, study, size=None, save_folder="", data_path=""):
     all_imgs = {}
     imgs = {}
     for f in sorted(glob.glob(data_path + f"{patient}/{study}/*.dcm")):
-        dicom = pydicom.dcmread(f)
+        try:
+            dicom = pydicom.dcmread(f)
 
-        pos_z = dicom[(0x20, 0x32)].value[-1]
+            pos_z = dicom[(0x20, 0x32)].value[-1]
 
-        img = standardize_pixel_array(dicom)
-        img = (img - img.min()) / (img.max() - img.min() + 1e-6)
+            img = standardize_pixel_array(dicom)
+            img = (img - img.min()) / (img.max() - img.min() + 1e-6)
 
-        if dicom.PhotometricInterpretation == "MONOCHROME1":
-            img = 1 - img
+            if dicom.PhotometricInterpretation == "MONOCHROME1":
+                img = 1 - img
 
-        imgs[pos_z] = img
+            imgs[pos_z] = img
+        except:
+            pass
 
     for i, k in enumerate(sorted(imgs.keys())):
         img = imgs[k]

@@ -58,6 +58,69 @@ class PatientLoss(nn.Module):
         self.weighted = weighted
         self.use_any = use_any
 
+    def _forward_soft(self, inputs, targets):
+        """
+        Computes the loss.
+        Args:
+            inputs (torch tensor [bs x 11]): Predictions.
+            targets (torch tensor [bs x 5] or [bs]): Targets.
+        Returns:
+            torch tensor [bs]: Loss values.
+        """
+        assert (targets.size(1) == 11) and (len(targets.size()) == 2), "Wrong target size"
+        assert (inputs.size(1) == 11) and (len(inputs.size()) == 2), "Wrong input size"
+        
+        bowel_pred =  inputs[:, 0]
+        bowel_target =  targets[:, 0]
+        bowel_w = bowel_target + 1 if self.weighted else 1  # 1, 2
+        bowel_loss = self.bce(bowel_pred, bowel_target) * bowel_w
+        
+        extravasion_pred =  inputs[:, 1]
+        extravasion_target =  targets[:, 1]
+        extravasion_w = (extravasion_target * 5) + 1 if self.weighted else 1  # 1, 6
+        extravasion_loss = self.bce(extravasion_pred, extravasion_target) * extravasion_w
+        
+        kidney_pred =  inputs[:, 2:5]
+        kidney_target =  targets[:, 2:5]
+        kidney_w = torch.pow(2, kidney_target.argmax(-1)) if self.weighted else 1 # 1, 2, 4
+        kidney_loss = self.ce(kidney_pred, kidney_target) * kidney_w
+
+        liver_pred =  inputs[:, 5:8]
+        liver_target =  targets[:, 5:8]
+        liver_w = torch.pow(2, liver_target.argmax(-1)) if self.weighted else 1  # 1, 2, 4
+        liver_loss = self.ce(liver_pred, liver_target) * liver_w
+        
+        spleen_pred =  inputs[:, 8:11]
+        spleen_target =  targets[:, 8:11]
+        spleen_w = torch.pow(2, spleen_target.argmax(-1)) if self.weighted else 1  # 1, 2, 4
+        spleen_loss = self.ce(spleen_pred, spleen_target) * spleen_w
+
+        if self.use_any:
+            any_target = (targets.amax(-1) > 0).float()
+            any_pred = torch.stack(
+                [
+                    bowel_pred.sigmoid(),
+                    extravasion_pred.sigmoid(),
+                    1 - kidney_pred.softmax(-1)[:, 0],
+                    1 - liver_pred.softmax(-1)[:, 0],
+                    1 - spleen_pred.softmax(-1)[:, 0]
+                ]
+            ).amax(0)
+
+            any_w = (any_target * 5) + 1  if self.weighted else 1  # 1, 6
+    #         any_loss = self.bce_nologits(any_pred, any_target) * any_w
+            any_loss = - any_w * (any_target * torch.log(any_pred) + (1 - any_target) * torch.log(1 - any_pred))
+
+            loss = (
+                bowel_loss + extravasion_loss + kidney_loss + liver_loss + spleen_loss + any_loss
+            ) * 1 / 6
+        else:
+            loss = (
+                bowel_loss + extravasion_loss + kidney_loss + liver_loss + spleen_loss
+            ) * 1 / 5
+    
+        return loss
+
     def forward(self, inputs, targets):
         """
         Computes the loss.
@@ -67,19 +130,16 @@ class PatientLoss(nn.Module):
         Returns:
             torch tensor [bs]: Loss values.
         """
+        if targets.size(-1) == 11:
+            return self._forward_soft(inputs, targets)
+        
         assert (targets.size(1) == 5) and (len(targets.size()) == 2), "Wrong target size"
         assert (inputs.size(1) == 11) and (len(inputs.size()) == 2), "Wrong input size"
         
         bowel_pred =  inputs[:, 0]
         bowel_target =  targets[:, 0]
-        
         bowel_w = bowel_target + 1 if self.weighted else 1  # 1, 2
         bowel_loss = self.bce(bowel_pred, bowel_target) * bowel_w
-        
-#         print(bowel_pred)
-#         print(bowel_target)
-#         print(bowel_w)
-#         print(bowel_loss)
         
         extravasion_pred =  inputs[:, 1]
         extravasion_target =  targets[:, 1]
@@ -88,13 +148,8 @@ class PatientLoss(nn.Module):
         
         kidney_pred =  inputs[:, 2:5]
         kidney_target =  targets[:, 2]
-        kidney_w = torch.pow(2, kidney_target)  # 1, 2, 4
+        kidney_w = torch.pow(2, kidney_target) if self.weighted else 1 # 1, 2, 4
         kidney_loss = self.ce(kidney_pred, kidney_target) * kidney_w
-        
-#         print(kidney_pred)
-#         print(kidney_target)
-#         print(kidney_w)
-#         print(kidney_loss)
 
         liver_pred =  inputs[:, 5:8]
         liver_target =  targets[:, 3]
@@ -105,11 +160,6 @@ class PatientLoss(nn.Module):
         spleen_target =  targets[:, 4]
         spleen_w = torch.pow(2, spleen_target) if self.weighted else 1  # 1, 2, 4
         spleen_loss = self.ce(spleen_pred, spleen_target) * spleen_w
-        
-#         print(spleen_pred)
-#         print(spleen_target)
-#         print(spleen_w)
-#         print(spleen_loss)
 
         if self.use_any:
             any_target = (targets.amax(-1) > 0).float()

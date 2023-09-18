@@ -16,8 +16,9 @@ if __name__ == "__main__":
 
 #     EXP_FOLDER = "../logs/2023-09-06/0/"
 #     EXP_FOLDER = "../logs/2023-09-06/5/"  # seg
-    EXP_FOLDER =  "../logs/2023-09-15/37/"
-    
+#     EXP_FOLDER =  "../logs/2023-09-15/37/"
+    EXP_FOLDER = "../logs/2023-09-18/75/"
+
     config = Config(json.load(open(EXP_FOLDER + "config.json", "r")))
     init_distributed(config)
 
@@ -30,11 +31,6 @@ if __name__ == "__main__":
     
     USE_FP16 = True
     SAVE = True
-    
-    if "fold" not in df_patient.columns:
-        folds = pd.read_csv(config.folds_file)
-        df_img = df_img.merge(folds)
-        df_patient = df_patient.merge(folds)
 
     if config.local_rank == 0:
         print(f"\n- Model {config.name}")
@@ -42,7 +38,13 @@ if __name__ == "__main__":
         print("\n -> Extracting features")
 
     kfold_inference(
-        df_patient, df_img, EXP_FOLDER, use_fp16=USE_FP16, save=SAVE, distributed=True, config=config
+        df_patient,
+        df_img,
+        EXP_FOLDER,
+        use_fp16=USE_FP16,
+        save=SAVE,
+        distributed=True,
+        config=config,
     )
 
     if config.local_rank == 0:

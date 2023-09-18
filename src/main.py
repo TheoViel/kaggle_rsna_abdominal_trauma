@@ -82,8 +82,8 @@ class Config:
     # Data
     resize = (512, 512)
     frames_chanel = 0
-    aug_strength = 4
-#     pos_prop = 0.1
+    aug_strength = 5
+    use_soft_target = False
 
     # k-fold
     k = 4
@@ -91,13 +91,13 @@ class Config:
     selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "tf_efficientnetv2_b1"
+    name = "convnextv2_tiny"  # tf_efficientnetv2_s convnextv2_tiny seresnext50_32x4d efficientnetv2_rw_ tf_efficientnet_b3_ns
     pretrained_weights = None # PRETRAINED_WEIGHTS[name]  # None
 
     num_classes = 11
     num_classes_aux = 0
-    drop_rate = 0.
-    drop_path_rate = 0.
+    drop_rate = 0.05
+    drop_path_rate = 0.05
     n_channels = 3
     reduce_stride = False
     replace_pad_conv = False
@@ -110,7 +110,7 @@ class Config:
         "use_any": False,
         "smoothing": 0.,
         "activation": "patient",
-        "aux_loss_weight": 0.,
+        "aux_loss_weight": 0.,  # Not ok with cutmix!
         "name_aux": "patient",
         "smoothing_aux": 0.,
         "activation_aux": "",
@@ -120,9 +120,10 @@ class Config:
     data_config = {
         "batch_size": 32,
         "val_bs": 32,
-        "mix": "mixup",
-        "mix_proba": 0.,
-        "mix_alpha": 4.,
+        "mix": "cutmix",
+        "mix_proba": 0.5,
+        "sched": False,
+        "mix_alpha": 4,
         "additive_mix": False,
         "num_classes": num_classes,
         "num_workers": 8,
@@ -133,17 +134,17 @@ class Config:
         "lr": 5e-4,
         "warmup_prop": 0.,
         "betas": (0.9, 0.999),
-        "max_grad_norm": 10.,
+        "max_grad_norm": 1.,
         "weight_decay": 0.,
     }
 
-    epochs = 20
+    epochs = 40
 
     use_fp16 = True
     verbose = 1
     verbose_eval = 50
     
-    fullfit = False
+    fullfit = True
     n_fullfit = 1
 
 
