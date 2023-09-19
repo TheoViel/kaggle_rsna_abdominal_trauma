@@ -183,7 +183,8 @@ def kfold_inference(
             num_classes_aux=config.num_classes_aux,
             n_channels=config.n_channels,
             reduce_stride=config.reduce_stride,
-            pretrained=False
+            increase_stride=config.increase_stride if hasattr(config, "increase_stride") else False,
+            pretrained=False,
         )
         model = model.cuda().eval()
         
@@ -233,7 +234,7 @@ def kfold_inference(
 
         if save and config.local_rank == 0:
             np.save(exp_folder + f"pred_val_{fold}.npy", pred)
-            np.save(exp_folder + f"fts_val_{fold}.npy", fts)
+#             np.save(exp_folder + f"fts_val_{fold}.npy", fts)
             preds.append(pred)
             
             pred_cols = []

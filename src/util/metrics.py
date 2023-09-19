@@ -16,7 +16,7 @@ WEIGHTS = {
 }
 
 
-def rsna_loss(preds, truths):
+def rsna_loss(preds, truths, eps=1e-6):
     '''
     Pseudocode:
     1. For every label group (liver, bowel, etc):
@@ -31,6 +31,9 @@ def rsna_loss(preds, truths):
     '''
     if isinstance(preds, torch.Tensor):
         preds = preds.cpu().numpy()
+        
+    preds = np.clip(preds, eps, 1 - eps)
+
     if isinstance(preds, np.ndarray):
         if preds.shape[-1] == 11:
             preds = [preds[:, 0], preds[:, 1], preds[:, 2: 5], preds[:, 5: 8], preds[:, 8:]]

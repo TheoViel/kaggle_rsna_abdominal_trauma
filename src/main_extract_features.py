@@ -17,7 +17,8 @@ if __name__ == "__main__":
 #     EXP_FOLDER = "../logs/2023-09-06/0/"
 #     EXP_FOLDER = "../logs/2023-09-06/5/"  # seg
 #     EXP_FOLDER =  "../logs/2023-09-15/37/"
-    EXP_FOLDER = "../logs/2023-09-18/75/"
+    EXP_FOLDER = "../logs/2023-09-19/5/"
+#     EXP_FOLDER = "../logs/2023-09-19/10/"  # seg efficient
 
     config = Config(json.load(open(EXP_FOLDER + "config.json", "r")))
     init_distributed(config)

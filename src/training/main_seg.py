@@ -65,6 +65,7 @@ def train(config, df_train, df_val, fold, log_folder=None, run=None):
         n_channels=config.n_channels,
         pretrained_weights=pretrained_weights,
         reduce_stride=config.reduce_stride,
+        increase_stride=config.increase_stride,
         verbose=(config.local_rank == 0),
     ).cuda()
 

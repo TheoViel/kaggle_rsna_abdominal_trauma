@@ -282,7 +282,9 @@ class AbdomenLoss(nn.Module):
             self.loss = ImageLoss(eps=self.eps)
         elif config["name"] == "patient":
             self.loss = PatientLoss(
-                eps=self.eps, weighted=config['weighted'], use_any=config['use_any']
+                eps=self.eps,
+                weighted=config.get('weighted', False),
+                use_any=config.get('use_any', False)
             )
         else:
             raise NotImplementedError
@@ -293,7 +295,9 @@ class AbdomenLoss(nn.Module):
             self.loss_aux = SmoothCrossEntropyLoss(eps=self.eps_aux)
         elif config["name_aux"] == "patient":
             self.loss_aux = PatientLoss(
-                eps=self.eps_aux, weighted=config['weighted'], use_any=config['use_any']
+                eps=self.eps,
+                weighted=config.get('weighted', False),
+                use_any=config.get('use_any', False)
             )
         else:
             raise NotImplementedError

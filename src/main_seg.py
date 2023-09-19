@@ -80,7 +80,7 @@ class Config:
 
     # Data
     resize = (512, 512)
-    aug_strength = 3
+    aug_strength = 5
     for_classification = True
 
     # k-fold
@@ -89,7 +89,7 @@ class Config:
     selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "tf_efficientnetv2_s"
+    name = "efficientnetv2_rw_t"
     pretrained_weights = None
     
     num_classes = 5
@@ -98,6 +98,7 @@ class Config:
     drop_path_rate = 0
     n_channels = 3
     reduce_stride = False
+    increase_stride = True
     replace_pad_conv = False
     use_gem = True
 
@@ -114,9 +115,10 @@ class Config:
     }
 
     data_config = {
-        "batch_size": 16,
-        "val_bs": 16,
+        "batch_size": 32,
+        "val_bs": 32,
         "mix": "mixup",
+        "sched": False,
         "mix_proba": 0.,
         "mix_alpha": 4.,
         "additive_mix": False,
@@ -126,20 +128,20 @@ class Config:
 
     optimizer_config = {
         "name": "AdamW",
-        "lr": 1e-3,
+        "lr": 5e-4,
         "warmup_prop": 0.,
         "betas": (0.9, 0.999),
         "max_grad_norm": 10.,
         "weight_decay": 0.,
     }
 
-    epochs = 2
+    epochs = 5
 
     use_fp16 = True
     verbose = 1
-    verbose_eval = 100
+    verbose_eval = 50
     
-    fullfit = False
+    fullfit = True
     n_fullfit = 1
 
 

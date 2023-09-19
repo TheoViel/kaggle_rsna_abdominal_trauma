@@ -91,13 +91,13 @@ class Config:
     selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "convnextv2_tiny"  # tf_efficientnetv2_s convnextv2_tiny seresnext50_32x4d efficientnetv2_rw_ tf_efficientnet_b3_ns
+    name = "tf_efficientnetv2_s"  # tf_efficientnetv2_s convnextv2_tiny seresnext50_32x4d efficientnetv2_rw_t tf_efficientnet_b5_ns
     pretrained_weights = None # PRETRAINED_WEIGHTS[name]  # None
 
     num_classes = 11
     num_classes_aux = 0
-    drop_rate = 0.05
-    drop_path_rate = 0.05
+    drop_rate = 0.2
+    drop_path_rate = 0.2
     n_channels = 3
     reduce_stride = False
     replace_pad_conv = False

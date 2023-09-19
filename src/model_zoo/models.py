@@ -9,15 +9,6 @@ from model_zoo.gem import GeM
 
 from util.torch import load_model_weights
 
-# sys.path.append("../Next-ViT/classification")
-# import nextvit
-
-# WEIGHTS = {
-#     "nextvit_small": "../input/nextvit_small_in1k6m_384.pth",
-#     "nextvit_base": "../input/nextvit_base_in1k6m_384.pth",
-#     "nextvit_large": "../input/nextvit_large_in1k6m_384.pth",
-# }
-
 
 def define_model(
     name,
@@ -27,6 +18,7 @@ def define_model(
     pretrained_weights="",
     pretrained=True,
     reduce_stride=False,
+    increase_stride=False,
     drop_rate=0,
     drop_path_rate=0,
     use_gem=False,
@@ -50,13 +42,6 @@ def define_model(
     Returns:
         torch model -- Pretrained model.
     """
-
-#     if "nextvit" in name:
-#         encoder = getattr(nextvit, name)(pretrained=pretrained)
-#         if pretrained:
-#             encoder.load_state_dict(torch.load(WEIGHTS[name])["model"], strict=True)
-#         encoder.num_features = encoder.proj_head[0].in_features
-#         del encoder.proj_head, encoder.avgpool
     if drop_path_rate > 0:
         encoder = timm.create_model(
             name,
@@ -90,6 +75,8 @@ def define_model(
 
     if reduce_stride:
         model.reduce_stride()
+    if increase_stride:
+        model.increase_stride()
         
     if replace_pad_conv and "efficient" in name:
         if verbose:
@@ -164,6 +151,14 @@ class ClsModel(nn.Module):
             self.encoder.conv_stem.stride = (1, 1)
         elif "nfnet" in self.encoder.name:
             self.encoder.stem.conv1.stride = (1, 1)
+        else:
+            raise NotImplementedError
+
+    def increase_stride(self):
+        if "efficient" in self.encoder.name:
+            self.encoder.conv_stem.stride = (4, 4)
+        elif "nfnet" in self.encoder.name:
+            self.encoder.stem.conv1.stride = (4, 4)
         else:
             raise NotImplementedError
 
