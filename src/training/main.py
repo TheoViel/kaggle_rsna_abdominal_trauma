@@ -31,19 +31,25 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
     Returns:
         dict: Dice scores at different thresholds.
     """
+    transfos = get_transfos(
+        strength=config.aug_strength, resize=config.resize, crop=config.crop
+    )
     train_dataset = AbdominalDataset(
         df_train,
         df_img_train,
-        transforms=get_transfos(strength=config.aug_strength, resize=config.resize),
+        transforms=transfos,
         frames_chanel=config.frames_chanel,
         use_soft_target=config.use_soft_target,
         train=True,
     )
 
+    transfos = get_transfos(
+        augment=False, resize=config.resize, crop=config.crop
+    )
     val_dataset = AbdominalDataset(
         df_val,
         df_img_val,
-        transforms=get_transfos(augment=False, resize=config.resize),
+        transforms=transfos,
         frames_chanel=config.frames_chanel,
         use_soft_target=config.use_soft_target,
         train=False,

@@ -4,6 +4,8 @@ import nibabel
 import numpy as np
 import pandas as pd
 
+from params import SEG_TARGETS
+
 
 def prepare_folds(data_path="../input/", k=4):
     """
@@ -64,6 +66,21 @@ def prepare_data(data_path="../input/", with_seg=True):
             df_img[f'{col}_injury'] = (df_img[f'pred_{col}'] > 0.9) * df_img[col]
 
     return df_patient, df_img
+
+
+def prepare_seg_data(data_path=""):
+    df_seg = pd.read_csv(data_path + 'df_seg.csv')
+    
+    df_seg['pixel_count_kidney'] = df_seg['pixel_count_left-kidney'] + df_seg['pixel_count_right-kidney']
+
+    # Add pixel prop tgt
+    dfg = df_seg[['series', 'pixel_count_liver', 'pixel_count_spleen', 'pixel_count_kidney', 'pixel_count_bowel']].groupby('series').max()
+    dfg = dfg * 0.9 + 1
+    df_seg = df_seg.merge(dfg.reset_index(), on="series", suffixes=("", "_norm"))
+    for col in SEG_TARGETS:
+        df_seg[col + "_norm"] = np.clip(df_seg[col] / df_seg[col + "_norm"], 0, 1)
+
+    return df_seg
 
 
 def load_segmentation(path):

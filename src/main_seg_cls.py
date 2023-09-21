@@ -82,35 +82,38 @@ class Config:
     # Data
     resize = (384, 384)
     crop = True
-    aug_strength = 1
-    for_classification = False
+    aug_strength = 5
+    for_classification = True
 
     # k-fold
     k = 4
     folds_file = f"../input/folds_{k}.csv"
-    selected_folds = [0]  # , 1, 2, 3]
+    selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "tf_efficientnetv2_s"  # "resnet18d"
-    decoder_name = "Unet"
+    name = "efficientnetv2_rw_t"
     pretrained_weights = None
-    increase_stride = False  # True
-    use_cls = False
-
+    
     num_classes = 5
-    num_classes_aux = 5
+    num_classes_aux = 0
+    drop_rate = 0
+    drop_path_rate = 0
     n_channels = 3
+    reduce_stride = False
+    increase_stride = True
+    replace_pad_conv = False
+    use_gem = True
 
     # Training    
     loss_config = {
-        "name": "ce",
+        "name": "bce",
         "smoothing": 0,
         "activation": "sigmoid",
-        "aux_loss_weight": 0.,
-        "name_aux": "bce",
+        "aux_loss_weight": 0,
+        "name_aux": "patient",
         "smoothing_aux": 0,
-        "activation_aux": "sigmoid",
-        "num_classes": num_classes,
+        "activation_aux": "",
+        "ousm_k": 0,  # todo ?
     }
 
     data_config = {
@@ -134,7 +137,7 @@ class Config:
         "weight_decay": 0.,
     }
 
-    epochs = 5
+    epochs = 4
 
     use_fp16 = True
     verbose = 1
@@ -211,8 +214,7 @@ if __name__ == "__main__":
 
         
     df = prepare_seg_data(data_path=DATA_PATH)
-#     df = df[df['patient_id'] == 10217].reset_index(drop=True)
-#     df = df[df[[c for c in df.columns if "norm" in c]].max(1) > 0.1].reset_index(drop=True)
+#     df = df[(df[SEG_TARGETS] > 0).max(1)].reset_index(drop=True)
 
     from training.main_seg import k_fold
     k_fold(config, df, log_folder=log_folder, run=run)

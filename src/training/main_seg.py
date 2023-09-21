@@ -9,7 +9,9 @@ from torch.nn.parallel import DistributedDataParallel
 
 from params import SEG_TARGETS
 from training.train import fit
+from training.train_seg import fit as fit_seg
 from model_zoo.models import define_model
+from model_zoo.models_seg import define_model as define_model_seg
 from data.dataset import SegDataset
 from data.transforms import get_transfos
 from util.torch import seed_everything, count_parameters, save_model_weights
@@ -54,20 +56,33 @@ def train(config, df_train, df_val, fold, log_folder=None, run=None):
     else:
         pretrained_weights = None
 
-    model = define_model(
-        config.name,
-        drop_rate=config.drop_rate,
-        drop_path_rate=config.drop_path_rate,
-        use_gem=config.use_gem,
-        replace_pad_conv=config.replace_pad_conv,
-        num_classes=config.num_classes,
-        num_classes_aux=config.num_classes_aux,
-        n_channels=config.n_channels,
-        pretrained_weights=pretrained_weights,
-        reduce_stride=config.reduce_stride,
-        increase_stride=config.increase_stride,
-        verbose=(config.local_rank == 0),
-    ).cuda()
+    if config.for_classification:
+        model = define_model(
+            config.name,
+            drop_rate=config.drop_rate,
+            drop_path_rate=config.drop_path_rate,
+            use_gem=config.use_gem,
+            replace_pad_conv=config.replace_pad_conv,
+            num_classes=config.num_classes,
+            num_classes_aux=config.num_classes_aux,
+            n_channels=config.n_channels,
+            pretrained_weights=pretrained_weights,
+            reduce_stride=config.reduce_stride,
+            increase_stride=config.increase_stride,
+            verbose=(config.local_rank == 0),
+        ).cuda()
+    else:
+        model = define_model_seg(
+            config.decoder_name,
+            config.name,
+            num_classes=config.num_classes,
+            num_classes_aux=config.num_classes_aux,
+            increase_stride=config.increase_stride,
+            use_cls=config.use_cls,
+            n_channels=config.n_channels,
+            pretrained_weights=pretrained_weights,
+            verbose=(config.local_rank == 0),
+        ).cuda()
 
     if config.distributed:
         model = DistributedDataParallel(
@@ -86,7 +101,8 @@ def train(config, df_train, df_val, fold, log_folder=None, run=None):
         print(f"    -> {len(val_dataset)} validation images")
         print(f"    -> {n_parameters} trainable parameters\n")
 
-    preds, preds_aux = fit(
+    fit_fct = fit if config.for_classification else fit_seg
+    _ = fit_fct(
         model,
         train_dataset,
         val_dataset,
@@ -114,8 +130,6 @@ def train(config, df_train, df_val, fold, log_folder=None, run=None):
     del (model, train_dataset, val_dataset)
     torch.cuda.empty_cache()
     gc.collect()
-
-    return preds, preds_aux
 
 
 def k_fold(config, df, df_extra=None, log_folder=None, run=None):
@@ -147,24 +161,33 @@ def k_fold(config, df, df_extra=None, log_folder=None, run=None):
             df_val = df[df['fold'] == fold].reset_index(drop=True)
             
             df_val = df_val[
-                (df_val[SEG_TARGETS] > 10000).max(1)
-            ].reset_index(drop=True)  # subsample for speed
+                df_val[[c for c in df_val.columns if "norm" in c]].max(1) > 0.1
+            ].reset_index(drop=True)
+            
+#             df_train = df_val[
+#                 (df_val[SEG_TARGETS] > 1).max(1)
+#             ].reset_index(drop=True)  # subsample for speed
+#             df_val = df_val[
+#                 (df_val[SEG_TARGETS] > 1).max(1)
+#             ].reset_index(drop=True)  # subsample for speed
+
+#             df_train = df_val.copy()
 
             if len(df) <= 1000:
                 df_train, df_val = df, df
 
-            preds, preds_aux = train(
+            train(
                 config, df_train, df_val, fold, log_folder=log_folder, run=run
             )
 
             if log_folder is None:
-                return preds, preds_aux 
+                return
 
-            if config.local_rank == 0:
-                np.save(log_folder + f"pred_val_{fold}", preds)
-                df_val.to_csv(log_folder + f"df_val_{fold}.csv", index=False)
+#             if config.local_rank == 0:
+#                 np.save(log_folder + f"pred_val_{fold}", preds)
+#                 df_val.to_csv(log_folder + f"df_val_{fold}.csv", index=False)
 
-    if config.fullfit:
+    if config.fullfit and len(config.selected_folds) == 4:
         for ff in range(config.n_fullfit):
             if config.local_rank == 0:
                 print(

@@ -62,7 +62,7 @@ def distortion_transforms(p=0.5):
     )
 
 
-def get_transfos(augment=True, resize=None, mean=0, std=1, strength=1):
+def get_transfos(augment=True, resize=None, crop=False, mean=0, std=1, strength=1):
     """
     Returns transformations. todo
 
@@ -74,7 +74,20 @@ def get_transfos(augment=True, resize=None, mean=0, std=1, strength=1):
     Returns:
         albumentation transforms: transforms.
     """
-    resize_aug = [albu.Resize(resize[0], resize[1])] if resize else []
+    if resize is None:
+        resize_aug = []
+    elif not crop:
+        resize_aug = [albu.Resize(resize[0], resize[1])]
+    else:
+        resize_aug = [albu.Compose([
+            albu.PadIfNeeded(resize[0], resize[1]),
+            albu.CenterCrop(resize[0], resize[1]),
+        ])]
+#         resize_aug = [albu.Compose([
+#             albu.PadIfNeeded(resize[0] - 128, resize[1] - 128),
+#             albu.CenterCrop(resize[0] - 128, resize[1] - 128),
+#             albu.Resize(resize[0], resize[1])
+#         ])]
 
     normalizer = albu.Compose(
         resize_aug
@@ -129,13 +142,13 @@ def get_transfos(augment=True, resize=None, mean=0, std=1, strength=1):
             augs = [
                 albu.HorizontalFlip(p=0.5),
                 albu.ShiftScaleRotate(
-                    scale_limit=0.2,
-                    shift_limit=0.1,
+                    scale_limit=0.,
+                    shift_limit=0.,
                     rotate_limit=45,
                     p=0.75,
                 ),
-                color_transforms(p=0.75),
-                blur_transforms(p=0.5),
+                color_transforms(p=0.25),
+                blur_transforms(p=0.25),
                 distortion_transforms(p=0.5),
             ]
         elif strength == 5:

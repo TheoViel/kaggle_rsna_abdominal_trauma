@@ -3,6 +3,8 @@ import cv2
 import torch
 import numpy as np
 import pandas as pd
+import torch.nn.functional as F
+
 from tqdm import tqdm
 from torch.utils.data import Dataset
 
@@ -76,6 +78,8 @@ class AbdominalDataset(Dataset):
         tgt_idx = idx % 5
         tgt = IMG_TARGETS_EXTENDED[tgt_idx]
         
+#         print(tgt)
+        
         idx = idx // 5
         patient = self.df_patient['patient_id'].values[idx]
         y_patient = self.targets[idx]
@@ -93,7 +97,7 @@ class AbdominalDataset(Dataset):
             seg = df_img[f'pred_{tgt.split("_")[0]}'].values
             seg = seg / (seg.max() + 1e-6)
             df_img = df_img[seg > 0.9]
-            
+
         # Restrict to one series
         series = np.random.choice(df_img['series'].unique()) if self.train else df_img['series'].values[0]
         df_img = df_img[df_img['series'] == series]
@@ -101,9 +105,15 @@ class AbdominalDataset(Dataset):
         # Sort by frame
         df_img = df_img.sort_values('frame').reset_index(drop=True)
         
-        # Pick middle row
+        # Pick a row
         if self.train:
-            row = df_img.iloc[np.random.choice(len(df_img))]
+#             display(df_img)
+            
+            ps = np.exp(-((np.arange(len(df_img)) - len(df_img) // 2) / (0.4 * len(df_img))) ** 2)  # gaussian
+            row_idx = np.random.choice(len(df_img), p=ps / ps.sum())
+#             print(row_idx, len(df_img))
+#             row_idx = np.random.choice(len(df_img))
+            row = df_img.iloc[row_idx]
         else:
             row = df_img.iloc[len(df_img) // 2]  # center
         
@@ -228,11 +238,13 @@ class Abdominal2DInfDataset(Dataset):
 
     
 class PatientFeatureDataset(Dataset):
-    def __init__(self, df_patient, df_img, exp_folders, max_len=None):
+    def __init__(self, df_patient, df_img, exp_folders, max_len=None, restrict=False, resize=None):
         self.df_patient = df_patient
         self.fts = self.retrieve_features(df_img, exp_folders)
         self.ids = list(self.fts.keys())
         self.max_len = max_len
+        self.restrict = restrict
+        self.resize = resize
 
     @staticmethod
     def retrieve_features(df, exp_folders):
@@ -280,23 +292,79 @@ class PatientFeatureDataset(Dataset):
     def pad(self, x):
         length = x.shape[0]
         if length > self.max_len:
-            return x[: self.max_len]
+            return x[-self.max_len:]
         else:
             padded = np.zeros([self.max_len] + list(x.shape[1:]))
-            padded[:length] = x
+            padded[-length:] = x
             return padded
         
     def __len__(self):
         return len(self.fts)
+    
+#     @staticmethod
+    def detect_start_end(self, x, margin=20):
+        seg = x[:, :5].copy()
+        seg[1:] += seg[:-1]
+        seg[:-1] += seg[1:]
+        seg = seg / 3
+
+        kept = (seg.max(-1) > (seg.max() * 0.99)).astype(int)
+        kept[1:] += kept[:-1]
+        kept[:-1] += kept[1:]
+        kept = ((kept / 3) >= 0.9).astype(int)
+        
+        start = np.clip(np.argmax(kept) - margin, 0, len(x))
+        end = np.clip(len(kept) - np.argmax(kept[::-1]) + margin, 0, len(x))
+     
+        return start, end
 
     def __getitem__(self, idx):
         
         patient_study = self.ids[idx]
 
         fts = self.fts[patient_study]
-        if self.max_len is not None:
-            fts = self.pad(fts)
-        fts = torch.from_numpy(fts).float()
+        
+#         if len(fts) > 100:
+#             fts = fts[len(fts) // 10:]
+
+#         print(fts.shape)
+#         fts = fts[len(fts) // 10:]
+#         seg = fts[:, :5]
+#         fts = fts[seg.max(-1) > min(0.9, seg.max() * 0.9)]
+#         print(fts.shape)
+            
+#         fts = fts[len(fts) // 8:]
+
+#         if len(fts) > 400:
+#             start, end = self.detect_start_end(fts)
+#             fts = fts[start:]
+
+#         fts[:len(fts) // 8] = 0
+#         seg = fts[:, :5]
+#         fts[seg.max(-1) < min(0.9, seg.max() * 0.9)] = 0
+
+        # THIS WORKS :
+        if self.restrict:
+            if len(fts) > 400:
+                fts = fts[len(fts) // 6:]
+            else:
+                fts = fts[len(fts) // 8:]
+        
+        if self.resize:
+            if self.max_len is not None:  # crop too long
+                fts = fts[-self.max_len:]
+
+            fts = F.interpolate(
+                torch.from_numpy(fts.T).float().unsqueeze(0),
+                size=self.resize,
+                mode="linear"
+            )[0].transpose(0, 1)
+        
+        else:
+            if self.max_len is not None:
+                fts = self.pad(fts)
+                
+            fts = torch.from_numpy(fts).float()
         
         y = self.df_patient[self.df_patient['patient_id'] == patient_study[0]][PATIENT_TARGETS].values[0]
         y = torch.from_numpy(y).float()  # bowel, extravasion, kidney, liver, spleen
@@ -313,6 +381,7 @@ class SegDataset(Dataset):
         self,
         df,
         for_classification=False,
+        use_soft_target=False,
         transforms=None,
     ):
         """
@@ -335,8 +404,10 @@ class SegDataset(Dataset):
         self.img_paths = df["img_path"].values
         self.mask_paths = df["mask_path"].values
 
-        self.img_targets = df[SEG_TARGETS].values > 100
-
+        if use_soft_target:
+            self.img_targets = df[[c + "_norm" for c in SEG_TARGETS]].values
+        else:
+            self.img_targets = df[SEG_TARGETS].values > 100
 
     def __len__(self):
         """
@@ -366,6 +437,9 @@ class SegDataset(Dataset):
         if not self.for_classification:
             mask = cv2.imread(self.mask_paths[idx], 0)
             
+            mask = np.where(mask == 4, 3, mask)
+            mask = np.where(mask == 5, 4, mask)
+
             transformed = self.transforms(image=image, mask=mask)
             image = transformed["image"]
             mask = transformed["mask"]

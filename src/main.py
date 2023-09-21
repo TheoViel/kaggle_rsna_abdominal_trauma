@@ -80,9 +80,10 @@ class Config:
     save_weights = True
 
     # Data
-    resize = (512, 512)
-    frames_chanel = 0
+    resize = (384, 384)
+    frames_chanel = 1
     aug_strength = 5
+    crop = True
     use_soft_target = False
 
     # k-fold
@@ -91,13 +92,13 @@ class Config:
     selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "tf_efficientnetv2_s"  # tf_efficientnetv2_s convnextv2_tiny seresnext50_32x4d efficientnetv2_rw_t tf_efficientnet_b5_ns
+    name = "tf_efficientnetv2_m"  # tf_efficientnetv2_s convnextv2_tiny seresnext50_32x4d efficientnetv2_rw_t tf_efficientnet_b5_ns
     pretrained_weights = None # PRETRAINED_WEIGHTS[name]  # None
 
     num_classes = 11
     num_classes_aux = 0
-    drop_rate = 0.2
-    drop_path_rate = 0.2
+    drop_rate = 0.05 if "convnext" in name else 0.2
+    drop_path_rate = 0.05 if "convnext" in name else 0.2
     n_channels = 3
     reduce_stride = False
     replace_pad_conv = False
@@ -173,9 +174,9 @@ if __name__ == "__main__":
             log_folder = prepare_log_folder(LOG_PATH)
             print(f'\n -> Logging results to {log_folder}\n')
         else:
-            time.sleep(1)
+            time.sleep(2)
             log_folder = get_last_log_folder(LOG_PATH)
-
+#             print(log_folder)
 
     if args.model:
         config.name = args.model

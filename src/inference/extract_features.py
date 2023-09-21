@@ -203,7 +203,7 @@ def kfold_inference(
 
         dataset = Abdominal2DInfDataset(
             df_val,
-            transforms=get_transfos(augment=False, resize=config.resize),
+            transforms=get_transfos(augment=False, resize=config.resize, crop=config.crop),
             frames_chanel=config.frames_chanel if hasattr(config, "frames_chanel") else 0,
         )
 

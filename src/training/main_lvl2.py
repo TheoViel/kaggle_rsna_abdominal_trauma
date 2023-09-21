@@ -35,6 +35,8 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
         df_img_train,
         config.exp_folders,
         max_len=config.max_len,
+        resize=config.resize,
+        restrict=config.restrict,
     )
 
     val_dataset = PatientFeatureDataset(
@@ -42,6 +44,8 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
         df_img_val,
         config.exp_folders,
         max_len=config.max_len,
+        resize=config.resize,
+        restrict=config.restrict,
     )
 
     model = define_model(
