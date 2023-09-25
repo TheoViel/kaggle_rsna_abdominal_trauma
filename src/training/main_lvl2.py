@@ -212,7 +212,7 @@ def retrieve_preds(df_patient, df_img, config, exp_folder):
 
         df_val = df_patient[df_patient['fold'] == fold]
 
-        dataset = PatientFeatureDataset(df_val, df_img[df_img['fold'] == fold], config.exp_folders)
+        dataset = PatientFeatureDataset(df_val, df_img[df_img['fold'] == fold], [])
         patients = [d[0] for d in dataset.ids]
         df_preds = pd.DataFrame({"patient_id": patients})
 

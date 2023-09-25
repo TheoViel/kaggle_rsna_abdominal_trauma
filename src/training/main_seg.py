@@ -12,7 +12,7 @@ from training.train import fit
 from training.train_seg import fit as fit_seg
 from model_zoo.models import define_model
 from model_zoo.models_seg import define_model as define_model_seg
-from data.dataset import SegDataset
+from data.dataset import SegDataset, Seg3dDataset
 from data.transforms import get_transfos
 from util.torch import seed_everything, count_parameters, save_model_weights
 
@@ -32,17 +32,21 @@ def train(config, df_train, df_val, fold, log_folder=None, run=None):
     Returns:
         dict: Dice scores at different thresholds.
     """
-    train_dataset = SegDataset(
-        df_train,
-        transforms=get_transfos(strength=config.aug_strength, resize=config.resize),
-        for_classification=config.for_classification
-    )
+    if not config.use_3d:
+        train_dataset = SegDataset(
+            df_train,
+            transforms=get_transfos(strength=config.aug_strength, resize=config.resize),
+            for_classification=config.for_classification
+        )
 
-    val_dataset = SegDataset(
-        df_val,
-        transforms=get_transfos(augment=False, resize=config.resize),
-        for_classification=config.for_classification
-    )
+        val_dataset = SegDataset(
+            df_val,
+            transforms=get_transfos(augment=False, resize=config.resize),
+            for_classification=config.for_classification
+        )
+    else:
+        train_dataset = Seg3dDataset(df_train, train=True)
+        val_dataset = Seg3dDataset(df_val)
 
     if config.pretrained_weights is not None:
         if config.pretrained_weights.endswith(
@@ -81,8 +85,10 @@ def train(config, df_train, df_val, fold, log_folder=None, run=None):
             use_cls=config.use_cls,
             n_channels=config.n_channels,
             pretrained_weights=pretrained_weights,
+            use_3d=config.use_3d,
             verbose=(config.local_rank == 0),
-        ).cuda()
+        )
+        model = model.cuda()
 
     if config.distributed:
         model = DistributedDataParallel(
@@ -157,35 +163,24 @@ def k_fold(config, df, df_extra=None, log_folder=None, run=None):
                 )
             seed_everything(config.seed + fold)
 
-            df_train = df[df['fold'] != fold].reset_index(drop=True)
+            if config.pretrain:
+                df_train = df_extra.copy()
+            else:
+                df_train = df[df['fold'] != fold].reset_index(drop=True)
             df_val = df[df['fold'] == fold].reset_index(drop=True)
             
-            df_val = df_val[
-                df_val[[c for c in df_val.columns if "norm" in c]].max(1) > 0.1
-            ].reset_index(drop=True)
-            
-#             df_train = df_val[
-#                 (df_val[SEG_TARGETS] > 1).max(1)
-#             ].reset_index(drop=True)  # subsample for speed
-#             df_val = df_val[
-#                 (df_val[SEG_TARGETS] > 1).max(1)
-#             ].reset_index(drop=True)  # subsample for speed
+            if not config.use_3d:
+                df_val = df_val[
+                    df_val[[c for c in df_val.columns if "norm" in c]].max(1) > 0.1
+                ].reset_index(drop=True)
 
 #             df_train = df_val.copy()
-
-            if len(df) <= 1000:
-                df_train, df_val = df, df
-
             train(
                 config, df_train, df_val, fold, log_folder=log_folder, run=run
             )
 
-            if log_folder is None:
+            if log_folder is None or config.pretrain:
                 return
-
-#             if config.local_rank == 0:
-#                 np.save(log_folder + f"pred_val_{fold}", preds)
-#                 df_val.to_csv(log_folder + f"df_val_{fold}.csv", index=False)
 
     if config.fullfit and len(config.selected_folds) == 4:
         for ff in range(config.n_fullfit):

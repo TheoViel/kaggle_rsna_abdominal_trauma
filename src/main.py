@@ -85,6 +85,7 @@ class Config:
     aug_strength = 5
     crop = True
     use_soft_target = False
+    use_mask = False
 
     # k-fold
     k = 4
@@ -92,19 +93,19 @@ class Config:
     selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "tf_efficientnetv2_m"  # tf_efficientnetv2_s convnextv2_tiny seresnext50_32x4d efficientnetv2_rw_t tf_efficientnet_b5_ns
+    name = "convnextv2_tiny"  # tf_efficientnetv2_s convnextv2_tiny efficientnetv2_rw_t tf_efficientnet_b5_ns
     pretrained_weights = None # PRETRAINED_WEIGHTS[name]  # None
 
     num_classes = 11
     num_classes_aux = 0
-    drop_rate = 0.05 if "convnext" in name else 0.2
-    drop_path_rate = 0.05 if "convnext" in name else 0.2
-    n_channels = 3
+    drop_rate = 0.05  # if "convnext" in name else 0.2
+    drop_path_rate = 0.05  # if "convnext" in name else 0.2
+    n_channels = 4 if (use_mask and frames_chanel) else 3
     reduce_stride = False
     replace_pad_conv = False
     use_gem = True
 
-    # Training    
+    # Training
     loss_config = {
         "name": "patient",
         "weighted": False,
@@ -119,8 +120,8 @@ class Config:
     }
 
     data_config = {
-        "batch_size": 32,
-        "val_bs": 32,
+        "batch_size": 8,
+        "val_bs": 16,
         "mix": "cutmix",
         "mix_proba": 0.5,
         "sched": False,
@@ -132,7 +133,7 @@ class Config:
 
     optimizer_config = {
         "name": "Ranger",
-        "lr": 5e-4,
+        "lr": 2e-4,
         "warmup_prop": 0.,
         "betas": (0.9, 0.999),
         "max_grad_norm": 1.,

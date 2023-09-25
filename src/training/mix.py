@@ -131,7 +131,45 @@ class Cutmix(nn.Module):
         lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1) / (w * h))
         return bbx1, bby1, bbx2, bby2, lam
 
-    def forward(self, x, y, y_aux=None):
+    @staticmethod
+    def rand_bbox_3d(size, lam):
+        """
+        Returns the coordinates of a random rectangle in the image for cutmix.
+
+        Args:
+            size (torch.Tensor): Input size [batch_size x c x w x h].
+            lam (float): Lambda sampled by the beta distribution. Controls the size of the rectangle.
+
+        Returns:
+            Tuple[int]: 4 coordinates of the rectangle (bbx1, bby1, bbx2, bby2).
+            float: Proportion of the unmasked image.
+        """
+        w = size[2]
+        h = size[3]
+        d = size[4]
+        cut_rat = np.sqrt(1.0 - lam)
+        cut_w = int(w * cut_rat)
+        cut_h = int(h * cut_rat)
+        cut_d = int(d * cut_rat)
+
+        # uniform
+        cx = np.random.randint(w)
+        cy = np.random.randint(h)
+        cz = np.random.randint(d)
+
+        bbx1 = np.clip(cx - cut_w // 2, 0, w)
+        bbx2 = np.clip(cx + cut_w // 2, 0, w)
+
+        bby1 = np.clip(cy - cut_h // 2, 0, h)
+        bby2 = np.clip(cy + cut_h // 2, 0, h)
+        
+        bbz1 = np.clip(cz - cut_d // 2, 0, d)
+        bbz2 = np.clip(cz + cut_d // 2, 0, d)
+    
+        lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1) * (bbz2 - bbz1) / (w * h * d))
+        return bbx1, bby1, bbx2, bby2, bbz1, bbz2, lam
+    
+    def forward(self, x, y, y_aux=None, use_3d=False):
         """
         Forward pass of the Cutmix module.
 
@@ -149,14 +187,22 @@ class Cutmix(nn.Module):
         perm = torch.randperm(x.shape[0])
         coeff = self.beta_distribution.rsample(torch.Size((1,))).to(x.device).view(-1).item()
 
-        bbx1, bby1, bbx2, bby2, coeff = self.rand_bbox(x.size(), coeff)
+        if use_3d:
+            bbx1, bby1, bbx2, bby2, bbz1, bbz2, coeff = self.rand_bbox_3d(x.size(), coeff)
+        else:
+            bbx1, bby1, bbx2, bby2, coeff = self.rand_bbox(x.size(), coeff)
 
         if n_dims == 3:  # bs x h x w
             x[:, bbx1:bbx2, bby1:bby2] = x[perm, bbx1:bbx2, bby1:bby2]
         elif n_dims == 4:  # bs x channels x h x w
             x[:, :, bbx1:bbx2, bby1:bby2] = x[perm, :, bbx1:bbx2, bby1:bby2]
-        elif n_dims == 5:  # bs x t x channels x h x w
-            x[:, :, :, bbx1:bbx2, bby1:bby2] = x[perm, :, :, bbx1:bbx2, bby1:bby2]
+#         elif n_dims == 5:  # bs x t x channels x h x w
+#             
+        elif n_dims == 5:  # bs x channels x h x w x d 
+            if use_3d:
+                x[:, :, bbx1:bbx2, bby1:bby2, bbz1:bbz2] = x[perm, :,  bbx1:bbx2, bby1:bby2, bbz1:bbz2]
+            else:
+                x[:, :, :, bbx1:bbx2, bby1:bby2] = x[perm, :, :, bbx1:bbx2, bby1:bby2]
         else:
             raise NotImplementedError
 
@@ -172,11 +218,16 @@ class Cutmix(nn.Module):
                 y[:, 8] = 1 - y[:, 10] - y[:, 9]
             else:
                 y = coeff * y + (1 - coeff) * y[perm]
-
         elif n_dims == 3:  # mask - bs x h x w
             y[:, bbx1:bbx2, bby1:bby2] = y[perm, bbx1:bbx2, bby1:bby2]
         elif n_dims == 4:  # mask - bs x classes x h x w
             y[:, :, bbx1:bbx2, bby1:bby2] = y[perm, :, bbx1:bbx2, bby1:bby2]
+        elif n_dims == 5:  # mask - bs x classes x h x w x d
+            if use_3d:
+                y[:, :, bbx1:bbx2, bby1:bby2, bbz1:bbz2] = y[perm, :, bbx1:bbx2, bby1:bby2, bbz1:bbz2]
+            else:
+                 y[:, :, :, bbx1:bbx2, bby1:bby2] = y[perm, :, :, bbx1:bbx2, bby1:bby2]
+           
         else:
             raise NotImplementedError
 

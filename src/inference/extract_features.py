@@ -201,10 +201,17 @@ def kfold_inference(
 
         df_val = df_img[df_img['fold'] == fold].reset_index(drop=True)  # if "fold" in df_img.columns else df_img
 
+        transforms = get_transfos(
+            augment=False,
+            resize=None if config.use_mask else config.resize,
+            crop=config.crop
+        )
+
         dataset = Abdominal2DInfDataset(
             df_val,
-            transforms=get_transfos(augment=False, resize=config.resize, crop=config.crop),
+            transforms=transforms,
             frames_chanel=config.frames_chanel if hasattr(config, "frames_chanel") else 0,
+            use_mask=config.use_mask,
         )
 
         if distributed:

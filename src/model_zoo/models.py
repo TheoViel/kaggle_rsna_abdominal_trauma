@@ -77,7 +77,7 @@ def define_model(
         model.reduce_stride()
     if increase_stride:
         model.increase_stride()
-        
+
     if replace_pad_conv and "efficient" in name:
         if verbose:
             print('Replacing Conv2dSame layers\n')
@@ -90,7 +90,6 @@ class ClsModel(nn.Module):
     """
     Model with an attention mechanism.
     """
-
     def __init__(
         self,
         encoder,
@@ -131,20 +130,33 @@ class ClsModel(nn.Module):
 
     def _update_num_channels(self):
         if self.n_channels != 3:
-            for n, m in self.encoder.named_modules():
-                if n:
-                    # print("Replacing", n)
-                    old_conv = getattr(self.encoder, n)
-                    new_conv = nn.Conv2d(
-                        self.n_channels,
-                        old_conv.out_channels,
-                        kernel_size=old_conv.kernel_size,
-                        stride=old_conv.stride,
-                        padding=old_conv.padding,
-                        bias=old_conv.bias is not None,
-                    )
-                    setattr(self.encoder, n, new_conv)
-                    break
+            if "convnext" in self.encoder.name:
+                conv = self.encoder.stem[0]
+                new_conv = nn.Conv2d(self.n_channels, conv.out_channels, kernel_size=conv.kernel_size, stride=conv.stride, padding=conv.padding)
+
+                new_conv_w = new_conv.weight.clone().detach()
+                new_conv_w[:, :3] = conv.weight.clone().detach()
+                new_conv.weight = torch.nn.Parameter(new_conv_w, requires_grad=True)
+
+                new_conv_b = conv.bias.clone().detach()
+                new_conv.bias = torch.nn.Parameter(new_conv_b, requires_grad=True)
+                
+                self.encoder.stem[0] = new_conv
+            else:
+                for n, m in self.encoder.named_modules():
+                    if n:
+                        # print("Replacing", n)
+                        old_conv = getattr(self.encoder, n)
+                        new_conv = nn.Conv2d(
+                            self.n_channels,
+                            old_conv.out_channels,
+                            kernel_size=old_conv.kernel_size,
+                            stride=old_conv.stride,
+                            padding=old_conv.padding,
+                            bias=old_conv.bias is not None,
+                        )
+                        setattr(self.encoder, n, new_conv)
+                        break
 
     def reduce_stride(self):
         if "efficient" in self.encoder.name:

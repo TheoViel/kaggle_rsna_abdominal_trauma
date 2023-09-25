@@ -83,11 +83,6 @@ def get_transfos(augment=True, resize=None, crop=False, mean=0, std=1, strength=
             albu.PadIfNeeded(resize[0], resize[1]),
             albu.CenterCrop(resize[0], resize[1]),
         ])]
-#         resize_aug = [albu.Compose([
-#             albu.PadIfNeeded(resize[0] - 128, resize[1] - 128),
-#             albu.CenterCrop(resize[0] - 128, resize[1] - 128),
-#             albu.Resize(resize[0], resize[1])
-#         ])]
 
     normalizer = albu.Compose(
         resize_aug

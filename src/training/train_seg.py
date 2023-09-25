@@ -275,7 +275,7 @@ def fit(
             y_aux = y_aux.cuda()
 
             if np.random.random() < data_config["mix_proba"]:
-                img, y, y_aux = mix(img, y, y_aux)
+                img, y, y_aux = mix(img, y, y_aux, use_3d=True)
 
             with torch.cuda.amp.autocast(enabled=use_fp16):
                 y_pred, y_pred_aux = model(img)

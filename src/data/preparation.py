@@ -68,7 +68,10 @@ def prepare_data(data_path="../input/", with_seg=True):
     return df_patient, df_img
 
 
-def prepare_seg_data(data_path=""):
+def prepare_seg_data(data_path="", use_3d=False):
+    if use_3d:
+        return pd.read_csv(data_path + 'df_seg_3d.csv')
+
     df_seg = pd.read_csv(data_path + 'df_seg.csv')
     
     df_seg['pixel_count_kidney'] = df_seg['pixel_count_left-kidney'] + df_seg['pixel_count_right-kidney']
@@ -96,3 +99,45 @@ def load_series(patient_id, series, img_path=""):
     files = sorted(glob.glob(img_path + f"{patient_id}_{series}_*"))
     imgs = np.array([cv2.imread(f, cv2.IMREAD_GRAYSCALE) for f in files])
     return imgs
+
+
+def center_crop_pad(img, size=384):
+    h, w = img.shape[-2:]
+    if h >= size:
+        margin = (h - size) // 2
+        img = img[..., margin : margin + size, :]
+    else:
+        new_img = np.zeros(list(img.shape[:-2]) + [size, img.shape[-1]])
+        margin = (size - h) // 2
+        new_img[..., margin: margin + h, :] = img
+        img = new_img
+    if w >= size:
+        margin = (w - size) // 2
+        img = img[..., margin : margin + size]
+    else:
+        new_img = np.zeros(list(img.shape[:-2]) + [size, size])
+        margin = (size - w) // 2
+        new_img[..., margin: margin + w] = img
+        img = new_img
+    
+    return img
+
+
+def auto_windowing(img):
+    pixels = img[::4, ::4, ::4].flatten()
+    
+    pixels = np.clip(pixels, -300, 450)
+    
+    pixels = pixels[pixels < pixels.max()]
+    pixels = pixels[pixels > pixels.min()]
+    
+    start = np.percentile(pixels, 1)
+    end = np.percentile(pixels, 99)
+
+    img = np.clip(img, start, end)
+
+    img = img - np.min(img)
+    img = img / np.max(img)
+    img = (img * 255).astype(np.uint8)
+
+    return img, (start, end)

@@ -247,7 +247,7 @@ def fit(
                     step_ = step * world_size
 
                     preds, preds_aux = preds[:len(val_dataset)], preds_aux[:len(val_dataset)]
-                    if preds.shape[1] in [2, 5]:  # image level or seg-cls
+                    if preds.shape[1] in [2, 4, 5]:  # image level or seg-cls
                         auc = np.mean([
                             roc_auc_score(val_dataset.img_targets[:, i], preds[:, i])
                             for i in range(preds.shape[1])

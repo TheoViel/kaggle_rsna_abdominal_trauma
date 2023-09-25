@@ -84,6 +84,7 @@ class Config:
     crop = True
     aug_strength = 5
     for_classification = True
+    use_mask = False
 
     # k-fold
     k = 4
@@ -93,8 +94,9 @@ class Config:
     # Model
     name = "efficientnetv2_rw_t"
     pretrained_weights = None
+    use_3d = False
     
-    num_classes = 5
+    num_classes = 4
     num_classes_aux = 0
     drop_rate = 0
     drop_path_rate = 0
@@ -145,6 +147,8 @@ class Config:
     
     fullfit = True
     n_fullfit = 1
+    
+    pretrain = False
 
 
 if __name__ == "__main__":

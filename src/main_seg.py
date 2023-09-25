@@ -78,28 +78,30 @@ class Config:
     verbose = 1
     device = "cuda"
     save_weights = True
+    pretrain = False
 
     # Data
     resize = (384, 384)
     crop = True
     aug_strength = 1
     for_classification = False
+    use_3d = True
 
     # k-fold
     k = 4
     folds_file = f"../input/folds_{k}.csv"
-    selected_folds = [0]  # , 1, 2, 3]
+    selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "tf_efficientnetv2_s"  # "resnet18d"
+    name = "resnet18d"  # "resnet18d"
     decoder_name = "Unet"
-    pretrained_weights = None
-    increase_stride = False  # True
+    pretrained_weights = None  # "../logs/2023-09-24/21/resnet18d_0.pt"
+    increase_stride = True  # True
     use_cls = False
 
     num_classes = 5
-    num_classes_aux = 5
-    n_channels = 3
+    num_classes_aux = 0
+    n_channels = 1
 
     # Training    
     loss_config = {
@@ -114,12 +116,12 @@ class Config:
     }
 
     data_config = {
-        "batch_size": 32,
-        "val_bs": 32,
-        "mix": "mixup",
+        "batch_size": 2,
+        "val_bs": 2,
+        "mix": "cutmix",
         "sched": False,
-        "mix_proba": 0.,
-        "mix_alpha": 4.,
+        "mix_proba": 0.5,
+        "mix_alpha": 4,
         "additive_mix": False,
         "num_classes": num_classes,
         "num_workers": 8,
@@ -127,14 +129,14 @@ class Config:
 
     optimizer_config = {
         "name": "AdamW",
-        "lr": 5e-4,
+        "lr": 1e-3,
         "warmup_prop": 0.,
         "betas": (0.9, 0.999),
         "max_grad_norm": 10.,
         "weight_decay": 0.,
     }
 
-    epochs = 5
+    epochs = 10 if pretrain else 100
 
     use_fp16 = True
     verbose = 1
@@ -209,13 +211,16 @@ if __name__ == "__main__":
         )
         print("\n -> Training\n")
 
-        
-    df = prepare_seg_data(data_path=DATA_PATH)
+    df_extra = None
+    if config.pretrain:
+        df_extra = pd.read_csv(DATA_PATH + 'df_seg_3d_extra.csv')
+
+    df = prepare_seg_data(data_path=DATA_PATH, use_3d=config.use_3d)
 #     df = df[df['patient_id'] == 10217].reset_index(drop=True)
 #     df = df[df[[c for c in df.columns if "norm" in c]].max(1) > 0.1].reset_index(drop=True)
 
     from training.main_seg import k_fold
-    k_fold(config, df, log_folder=log_folder, run=run)
+    k_fold(config, df, df_extra, log_folder=log_folder, run=run)
 
     if config.local_rank == 0:
         print("\nDone !")
