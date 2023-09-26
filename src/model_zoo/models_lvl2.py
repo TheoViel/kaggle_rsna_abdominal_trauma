@@ -175,7 +175,7 @@ class RNNAttModel(nn.Module):
 
         self.mlp = nn.Sequential(
             nn.Linear(ft_dim, dense_dim),
-            nn.Dropout(p=p),
+#             nn.Dropout(p=p),
             nn.Mish(),
         )
 

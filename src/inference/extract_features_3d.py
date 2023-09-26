@@ -8,7 +8,7 @@ from sklearn.metrics import roc_auc_score
 from torch.nn.parallel import DistributedDataParallel
 
 from data.preparation import prepare_data
-from data.dataset import Abdominal2DInfDataset
+from data.dataset import AbdominalInfDataset
 from data.transforms import get_transfos
 from data.loader import define_loaders
 from model_zoo.models import define_model
@@ -25,7 +25,18 @@ class Config:
             setattr(self, k, v)
 
 
-def predict(model, dataset, loss_config, batch_size=64, device="cuda", use_fp16=False, num_workers=8):
+def predict(
+    model,
+    dataset,
+    loss_config,
+    batch_size=64,
+    device="cuda",
+    use_fp16=False,
+    num_workers=8,
+    distributed=False,
+    world_size=0,
+    local_rank=0
+):
     """
     Perform inference using a single model and generate predictions for the given dataset.
 
@@ -43,16 +54,16 @@ def predict(model, dataset, loss_config, batch_size=64, device="cuda", use_fp16=
         list: Empty list, placeholder for the auxiliary task.
     """
     model.eval()
-    preds, fts = [], []
+    preds = []
 
     loader = DataLoader(
         dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
     )
 
     with torch.no_grad():
-        for img, _, _ in loader:
+        for x, _, _ in tqdm(loader):
             with torch.cuda.amp.autocast(enabled=use_fp16):
-                y_pred, ft = model(img.cuda(), return_fts=True)
+                y_pred = model(x.cuda())
 
             # Get probabilities
             if loss_config["activation"] == "sigmoid":
@@ -66,9 +77,7 @@ def predict(model, dataset, loss_config, batch_size=64, device="cuda", use_fp16=
                 y_pred[:, 8:] = y_pred[:, 8:].softmax(-1)
 
             preds.append(y_pred.detach().cpu().numpy())
-            fts.append(ft.detach().cpu().numpy())
-
-    return np.concatenate(preds), np.concatenate(fts)
+    return np.concatenate(preds)
 
 
 def predict_distributed(
@@ -83,8 +92,8 @@ def predict_distributed(
     local_rank=0,
 ):
     model.eval()
-    preds, fts = [], []
-    
+    preds = []
+
     loader = define_loaders(
         dataset,
         dataset,
@@ -97,10 +106,9 @@ def predict_distributed(
     )[1]
 
     with torch.no_grad():
-        for img, _, _ in tqdm(loader, disable=(local_rank!=0)):
-
+        for x, _, _ in tqdm(loader, disable=(local_rank!=0)):
             with torch.cuda.amp.autocast(enabled=use_fp16):
-                y_pred, ft = model(img.cuda(), return_fts=True)
+                y_pred = model(x.cuda())
 
             if loss_config["activation"] == "sigmoid":
                 y_pred = y_pred.sigmoid()
@@ -113,22 +121,17 @@ def predict_distributed(
                 y_pred[:, 8:] = y_pred[:, 8:].softmax(-1)
 
             preds.append(y_pred.detach())
-            fts.append(ft.detach())
-
     preds = torch.cat(preds, 0)
-    fts = torch.cat(fts, 0)
 
     if distributed:
-        fts = sync_across_gpus(fts, world_size)
         preds = sync_across_gpus(preds, world_size)
         torch.distributed.barrier()
 
     if local_rank == 0:
         preds = preds.cpu().numpy()
-        fts = fts.cpu().numpy()
-        return preds, fts
+        return preds
     else:
-        return 0, 0
+        return 0
 
 
 def kfold_inference(
@@ -158,6 +161,8 @@ def kfold_inference(
     Returns:
         List[np.ndarray]: List of arrays containing the predicted probabilities for each class for each fold.
     """
+    predict_fct = predict_distributed if distributed else predict
+
     if config is None:
         config = Config(json.load(open(exp_folder + "config.json", "r")))
         
@@ -175,6 +180,7 @@ def kfold_inference(
             drop_rate=config.drop_rate,
             drop_path_rate=config.drop_path_rate,
             use_gem=config.use_gem,
+            head_3d=config.head_3d,
             replace_pad_conv=config.replace_pad_conv,
             num_classes=config.num_classes,
             num_classes_aux=config.num_classes_aux,
@@ -187,6 +193,8 @@ def kfold_inference(
         
         weights = exp_folder + f"{config.name}_{fold}.pt"
         model = load_model_weights(model, weights, verbose=config.local_rank == 0)
+        
+        model.set_mode("img")
 
         if distributed:
             model = DistributedDataParallel(
@@ -197,48 +205,58 @@ def kfold_inference(
             )
 
         df_val = df_img[df_img['fold'] == fold].reset_index(drop=True)  # if "fold" in df_img.columns else df_img
-
-        transforms = get_transfos(
-            augment=False,
-            resize=None if config.use_mask else config.resize,
-            crop=config.crop
-        )
-
-        dataset = Abdominal2DInfDataset(
+#         df_val = df_val.head(30000)
+    
+        # Extract features
+        transforms = get_transfos(augment=False, resize=config.resize, crop=config.crop)
+        dataset = AbdominalInfDataset(
             df_val,
             transforms=transforms,
-            frames_chanel=config.frames_chanel if hasattr(config, "frames_chanel") else 0,
-            use_mask=config.use_mask,
+            frames_chanel=config.frames_chanel,
+            n_frames=config.n_frames,
+            stride=config.stride,
         )
 
-        if distributed:
-            pred, fts = predict_distributed(
-                model,
-                dataset,
-                config.loss_config,
-                batch_size=config.data_config["val_bs"] if batch_size is None else batch_size,
-                use_fp16=use_fp16,
-                num_workers=num_workers,
-                distributed=True,
-                world_size=config.world_size,
-                local_rank=config.local_rank,
+        features = predict_fct(
+            model,
+            dataset,
+            {"activation": "none"},
+            batch_size=config.data_config["val_bs"] if batch_size is None else batch_size,
+            use_fp16=use_fp16,
+            num_workers=num_workers,
+            distributed=distributed,
+            world_size=config.world_size,
+            local_rank=config.local_rank,
+        )
+
+        # 3D head
+        if config.local_rank == 0:
+            if distributed:
+                model = model.module
+
+            model.set_mode("ft")
+
+            dataset = AbdominalInfDataset(
+                df_val,
+                transforms=transforms,
+                frames_chanel=config.frames_chanel,
+                n_frames=config.n_frames,
+                stride=config.stride,
+                features=features,
             )
-            if config.local_rank == 0:
-                pred, fts = pred[:len(dataset)], fts[:len(dataset)]
-        else:
-            print('\nWarning, this is slow !\n')
-            pred, fts = predict(
+
+            pred = predict(
                 model,
                 dataset,
                 config.loss_config,
-                batch_size=config.data_config["val_bs"] if batch_size is None else batch_size,
+                batch_size=512,
                 use_fp16=use_fp16,
                 num_workers=num_workers,
             )
 
-        if save and config.local_rank == 0:
-            np.save(exp_folder + f"pred_val_{fold}.npy", pred)
-   
+            if save:
+                np.save(exp_folder + f"pred_val_{fold}.npy", pred)
+            
             pred_cols = []
             for i, tgt in enumerate(IMAGE_TARGETS):
                 df_val[f"pred_{tgt}"] = pred[:len(df_val), i]
@@ -251,7 +269,10 @@ def kfold_inference(
 
             print()
             for tgt in IMAGE_TARGETS:
-                auc = roc_auc_score(df_val_patient[tgt], df_val_patient[f"pred_{tgt}"])
+                try:
+                    auc = roc_auc_score(df_val_patient[tgt], df_val_patient[f"pred_{tgt}"])
+                except:
+                    continue
                 print(f'- {tgt} auc : {auc:.3f}')
                 
             losses, avg_loss = rsna_loss(

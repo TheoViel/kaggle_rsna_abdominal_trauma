@@ -26,7 +26,22 @@ def to_one_hot_patient(y):
             new_y.append(y_)
     return torch.cat(new_y, -1)
 
-import joblib
+
+def get_frames(frame, n_frames, frames_c, stride=1, max_frame=100):
+    frames = np.arange(n_frames) * stride
+    frames = frames - frames[n_frames // 2] + frame
+    
+    if frames_c:
+        offset = np.tile(np.arange(-1, 2) * frames_c, len(frames))
+        frames = np.repeat(frames, 3) + offset
+
+    if frames.min() <= 0:
+        frames -= frames.min() - 1
+    elif frames.max() > max_frame:
+        frames += max_frame - frames.max()
+
+    frames = np.clip(frames, 0, max_frame)
+    return frames
 
 
 class AbdominalDataset(Dataset):
@@ -36,6 +51,8 @@ class AbdominalDataset(Dataset):
         df_img,
         transforms=None,
         frames_chanel=0,
+        n_frames=0,
+        stride=1,
         train=False,
         use_soft_target=False,
         use_mask=False,
@@ -52,6 +69,8 @@ class AbdominalDataset(Dataset):
         self.df_patient = df_patient
         self.transforms = transforms
         self.frames_chanel = frames_chanel
+        self.n_frames = n_frames
+        self.stride = stride
         self.train = train
         self.use_soft_target = use_soft_target
     
@@ -85,6 +104,7 @@ class AbdominalDataset(Dataset):
 #         t0a = time.time()
         tgt_idx = idx % 5
         tgt = IMG_TARGETS_EXTENDED[tgt_idx]
+#         print(tgt)
 
         idx = idx // 5
         patient = self.df_patient['patient_id'].values[idx]
@@ -114,27 +134,42 @@ class AbdominalDataset(Dataset):
         # Sort by frame
         df_img = df_img.sort_values('frame').reset_index(drop=True)
         
-        if self.use_mask:  # NEEEEEEEEW
+        if self.use_mask:
             if any(df_img['frame'].values > (self.max_frames[series] - 600)):
                 df_img = df_img[df_img['frame'] > (self.max_frames[series] - 600)].reset_index(drop=True)
         
         # Pick a row
         if self.train:
-#             display(df_img)
             ps = np.exp(-((np.arange(len(df_img)) - len(df_img) // 2) / (0.4 * len(df_img))) ** 2)  # gaussian
-            row_idx = np.random.choice(len(df_img), p=ps / ps.sum())
-#             print(row_idx, len(df_img))
-#             row_idx = np.random.choice(len(df_img))
-            row = df_img.iloc[row_idx]
+            ps[:self.stride + self.frames_chanel] = 0  # Stay in bounds
+            ps[-self.stride + self.frames_chanel:] = 0  # Stay in bounds
+            if ps.max():
+                row_idx = np.random.choice(len(df_img), p=ps / ps.sum())
+            else:
+                row_idx = len(df_img) // 2 + np.random.choice([-2, -1, 0, 1, 2])
+
+            try:
+                row = df_img.iloc[row_idx]
+            except:
+                ps = np.exp(-((np.arange(len(df_img)) - len(df_img) // 2) / (0.4 * len(df_img))) ** 2)
+                row_idx = np.random.choice(len(df_img), p=ps / ps.sum())
+#                 row_idx = np.random.choice(len(df_img))
+                row = df_img.iloc[row_idx]
+                
         else:
             row = df_img.iloc[len(df_img) // 2]  # center
             
 #         t0 = time.time()
         
-        if self.frames_chanel > 0:
+        if self.frames_chanel > 0 or self.n_frames > 1:
             frame = row.frame
+            frames = get_frames(
+                frame, self.n_frames, self.frames_chanel, stride=self.stride, max_frame=self.max_frames[series]
+            )
+#             print(frames)
+
             frame = np.clip(frame, self.frames_chanel, self.max_frames[series] - self.frames_chanel)
-            paths = [row.path.rsplit('_', 1)[0] + f'_{f:04d}.png' for f in [frame - self.frames_chanel, frame, frame + self.frames_chanel]]
+            paths = [row.path.rsplit('_', 1)[0] + f'_{f:04d}.png' for f in frames]
             image = np.array([cv2.imread(path, 0) for path in paths]).transpose(1, 2, 0)
         else:
             frame = row.frame
@@ -182,8 +217,16 @@ class AbdominalDataset(Dataset):
             else:
                 image[-1] = mask.float()
 
-#         if image.size(0) > 3:
-#             image = image.view(3, -1, image.size(1), image.size(2)).transpose(0, 1)
+#         print(image.size())
+        if self.n_frames > 1:
+            if self.frames_chanel:
+                image = image.view(
+                    self.n_frames, 3, image.size(1), image.size(2)
+                )  # .transpose(0, 1)
+            else:
+                image = image.view(
+                    1, self.n_frames, image.size(1), image.size(2)
+                ).repeat(3, 1, 1, 1).transpose(0, 1)
             
             
 #         t4 = time.time()        
@@ -194,6 +237,130 @@ class AbdominalDataset(Dataset):
 #         print(f'tgt {t4 - t3 :.3f}')
 
         return image, y_img, y_patient
+
+
+class AbdominalInfDataset(Dataset):
+    def __init__(
+        self,
+        df,
+        transforms=None,
+        frames_chanel=0,
+        n_frames=1,
+        stride=1,
+        use_mask=False,
+        imgs={},
+        features=[],
+    ):
+        """
+        Constructor.
+
+        Args:
+            df_img (pandas DataFrame): Metadata containing information about the dataset.
+            df_patient (pandas DataFrame): Metadata containing information about the dataset.
+            transforms (albu transforms, optional): Transforms to apply to images and masks. Defaults to None.
+        """
+        self.df = df
+        self.info = self.df[['path', "patient_id", 'series', 'frame']].values
+        self.transforms = transforms
+
+        self.frames_chanel = frames_chanel
+        self.n_frames = n_frames
+        self.stride = stride
+
+        self.max_frames = dict(df[["series", "frame"]].groupby("series").max()['frame'])
+
+        self.use_mask = use_mask
+        self.mask_folder = "../logs/2023-09-24/20/masks/"
+        
+        self.imgs = imgs
+        self.features = features
+
+        if len(features):
+            self.features = dict(zip(self.get_keys(), features))
+            
+
+    def __len__(self):
+        """
+        Get the length of the dataset.
+
+        Returns:
+            int: Length of the dataset.
+        """
+        return len(self.df)
+    
+    def get_keys(self):
+        keys = []
+        for idx in range(len(self.df)):
+            path, patient, series, frame = self.info[idx]
+            frames = get_frames(
+                frame, 1, self.frames_chanel, stride=1, max_frame=self.max_frames[series]
+            )
+            key = f'{patient}_{series}_{"-".join(list(frames.astype(str)))}'
+            keys.append(key)
+        return keys
+
+    def _getitem_feature(self, idx):
+        path, patient, series, frame = self.info[idx]
+        
+        all_frames = get_frames(
+            frame, self.n_frames, self.frames_chanel, stride=self.stride, max_frame=self.max_frames[series]
+        )
+        all_frames = all_frames.reshape(-1, 3)
+        
+        fts = []
+        for frames in all_frames:
+            key = f'{patient}_{series}_{"-".join(list(frames.astype(str)))}'
+            fts.append(self.features[key])
+        fts = np.array(fts)
+        return fts, 0, 0
+
+    def __getitem__(self, idx):
+        """
+        Item accessor.
+
+        Args:
+            idx (int): Index.
+
+        Returns:
+            torch.Tensor: Image as a tensor of shape [C, H, W].
+            torch.Tensor: Mask as a tensor of shape [1 or 7, H, W].
+            torch.Tensor: Label as a tensor of shape [1].
+        """
+        if len(self.features):
+            return self._getitem_feature(idx)
+
+        path, patient, series, frame = self.info[idx]
+
+        frames = get_frames(
+            frame, 1, self.frames_chanel, stride=1, max_frame=self.max_frames[series]
+        )
+
+        paths = [path.rsplit('_', 1)[0] + f'_{f:04d}.png' for f in frames]
+
+        image = []
+        for path, frame in zip(paths, frames):
+            try:
+                img = self.imgs[path]
+            except:
+                img = cv2.imread(path, 0)
+
+                if not (idx + 1 % 10000):  # clear buffer
+                    self.imgs = {}
+                self.imgs[path] = img
+
+            image.append(img)
+        image = np.array(image).transpose(1, 2, 0)
+
+        image = image.astype(np.float32) / 255.
+
+        if self.transforms:
+            transformed = self.transforms(image=image)
+            image = transformed["image"]
+
+        if image.size(0) == 1:
+            image = image.repeat(3, 1, 1)
+
+        return image, 0, 0
 
 
 class Abdominal2DInfDataset(Dataset):
@@ -532,6 +699,14 @@ class PatientFeatureDataset(Dataset):
 
                     kidney = seg[:, 2: 4].max(-1, keepdims=True) if seg.shape[-1] == 5 else seg[:, 2: 3]
 
+#                     fts.append(np.concatenate([
+#                         ft[:, :1] * seg[:, -1:],  # bowel
+#                         ft[:, 1:2] * seg.max(-1, keepdims=True),  # extravasation
+#                         ft[:, 3: 5] * kidney,  # kidney
+#                         ft[:, 6: 8] * seg[:, :1],  # liver
+#                         ft[:, 9:] * seg[:, 1:2],  # spleen
+#                     ], -1))
+
                     fts.append(np.concatenate([
                         ft[:, :1] * seg[:, -1:],  # bowel
                         ft[:, 1:2] * seg.max(-1, keepdims=True),  # extravasation
@@ -539,6 +714,26 @@ class PatientFeatureDataset(Dataset):
                         ft[:, 5: 8] * seg[:, :1],  # liver
                         ft[:, 8:] * seg[:, 1:2],  # spleen
                     ], -1))
+                    
+#                 elif mode == "probas_3d":
+#                     ft_3d = np.load(exp_folder + f"pred_val_{fold}.npy")
+#                 elif mode == "probas_2d" or mode == "probas":  # proba
+#                     ft_2d = np.load(exp_folder + f"pred_val_{fold}.npy")
+                    
+#                     ft = ft_2d if ft_3d is None else ft_2d
+#                     ft[:, 1] = ft_2d[:, 1]
+                    
+#                     fts.append(ft)
+
+#                     kidney = seg[:, 2: 4].max(-1, keepdims=True) if seg.shape[-1] == 5 else seg[:, 2: 3]
+
+#                     fts.append(np.concatenate([
+#                         ft[:, :1] * seg[:, -1:],  # bowel
+#                         ft[:, 1:2] * seg.max(-1, keepdims=True),  # extravasation
+#                         ft[:, 2: 5] * kidney,  # kidney
+#                         ft[:, 5: 8] * seg[:, :1],  # liver
+#                         ft[:, 8:] * seg[:, 1:2],  # spleen
+#                     ], -1))
                 
             try:
                 fts = np.concatenate(fts, axis=1)

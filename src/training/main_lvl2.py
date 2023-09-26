@@ -206,9 +206,9 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
     return pred_oof, pred_oof_aux
 
 
-def retrieve_preds(df_patient, df_img, config, exp_folder):
+def retrieve_preds(df_patient, df_img, config, exp_folder, folds=None):
     dfs = []
-    for fold in config.selected_folds:
+    for fold in config.selected_folds if folds is None else folds:
 
         df_val = df_patient[df_patient['fold'] == fold]
 

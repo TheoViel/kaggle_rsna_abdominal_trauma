@@ -82,6 +82,9 @@ class Config:
     # Data
     resize = (384, 384)
     frames_chanel = 1
+    n_frames = 3
+    stride = 5
+
     aug_strength = 5
     crop = True
     use_soft_target = False
@@ -104,6 +107,7 @@ class Config:
     reduce_stride = False
     replace_pad_conv = False
     use_gem = True
+    head_3d = "lstm"
 
     # Training
     loss_config = {
@@ -133,18 +137,18 @@ class Config:
 
     optimizer_config = {
         "name": "Ranger",
-        "lr": 2e-4,
+        "lr": 3e-4,
         "warmup_prop": 0.,
         "betas": (0.9, 0.999),
         "max_grad_norm": 1.,
         "weight_decay": 0.,
     }
 
-    epochs = 40
+    epochs = 30
 
     use_fp16 = True
     verbose = 1
-    verbose_eval = 50
+    verbose_eval = 50 if data_config["batch_size"] >= 16 else 100
     
     fullfit = True
     n_fullfit = 1
@@ -236,7 +240,11 @@ if __name__ == "__main__":
         if config.local_rank == 0:
             print("\n -> Extracting features\n")
 
-        from inference.extract_features import kfold_inference
+        if config.head_3d:
+            from inference.extract_features_3d import kfold_inference
+        else:
+            from inference.extract_features import kfold_inference
+    
         kfold_inference(
             df_patient, df_img, log_folder, use_fp16=config.use_fp16, save=True, distributed=True, config=config
         )

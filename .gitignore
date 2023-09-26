@@ -35,3 +35,5 @@ src/core
 wandb/
 runs/
 nextvit/
+yolox/
+yolov7/

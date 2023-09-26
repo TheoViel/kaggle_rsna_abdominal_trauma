@@ -8,15 +8,17 @@ import pandas as pd
 from data.preparation import prepare_data
 from util.torch import init_distributed
 from inference.extract_features import Config, kfold_inference
+from inference.extract_features_3d import kfold_inference as kfold_inference_3d
 from params import DATA_PATH
 
 
 if __name__ == "__main__":
     warnings.simplefilter("ignore", UserWarning)
 
-    EXP_FOLDER = "../logs/2023-09-25/26/"
-    EXP_FOLDER = "../logs/2023-09-25/22/"
-    EXP_FOLDER = "../logs/2023-09-25/15/"
+#     EXP_FOLDER = "../logs/2023-09-25/26/"
+#     EXP_FOLDER = "../logs/2023-09-25/22/"
+#     EXP_FOLDER = "../logs/2023-09-26/6/"
+    EXP_FOLDER = "../logs/2023-09-26/8/"
 
     config = Config(json.load(open(EXP_FOLDER + "config.json", "r")))
     init_distributed(config)
@@ -36,7 +38,10 @@ if __name__ == "__main__":
         print(f"- Exp folder {EXP_FOLDER}")
         print("\n -> Extracting features")
 
-    kfold_inference(
+    is_3d = config.head_3d if hasattr(config, "head_3d") else False
+    inf_fct = kfold_inference_3d if is_3d else kfold_inference
+
+    inf_fct(
         df_patient,
         df_img,
         EXP_FOLDER,

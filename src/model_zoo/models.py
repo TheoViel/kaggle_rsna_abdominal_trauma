@@ -22,6 +22,7 @@ def define_model(
     drop_rate=0,
     drop_path_rate=0,
     use_gem=False,
+    head_3d="",
     verbose=1,
     replace_pad_conv=False,
 ):
@@ -66,6 +67,7 @@ def define_model(
         n_channels=n_channels,
         drop_rate=drop_rate,
         use_gem=use_gem,
+        head_3d=head_3d,
     )
 
     if pretrained_weights:
@@ -98,6 +100,7 @@ class ClsModel(nn.Module):
         n_channels=3,
         drop_rate=0,
         use_gem=False,
+        head_3d="",
     ):
         """
         Constructor.
@@ -118,9 +121,13 @@ class ClsModel(nn.Module):
         self.num_classes_aux = num_classes_aux
         self.n_channels = n_channels
         self.use_gem = use_gem
+        self.head_3d = head_3d
 
         self.global_pool = GeM(p_trainable=False)
         self.dropout = nn.Dropout(drop_rate) if drop_rate else nn.Identity()
+        
+        if head_3d == "lstm":
+            self.lstm = nn.LSTM(self.nb_ft, self.nb_ft // 4, batch_first=True, bidirectional=True)
 
         self.logits = nn.Linear(self.nb_ft, num_classes)
         if self.num_classes_aux:
@@ -213,6 +220,40 @@ class ClsModel(nn.Module):
             logits_aux = torch.zeros((fts.size(0)))
 
         return logits, logits_aux
+    
+    def forward_head_3d(self, x):
+        if self.head_3d == "avg":
+            return x.mean(1)
+        elif self.head_3d == "avg":
+            return x.amax(1)
+
+        if self.head_3d == "lstm":
+            x, _ = self.lstm(x)
+            mean = x.mean(1)
+            max_ = x.amax(1)
+            x = torch.cat([mean, max_], -1)
+        return x
+    
+    def forward_from_features(self, fts):
+        """
+        fts = bs x b_frames x n_fts
+        """
+        fts = self.dropout(fts)
+        
+        if self.head_3d:
+            fts = self.forward_head_3d(fts)
+
+        logits, logits_aux = self.get_logits(fts)
+        return logits
+    
+    def set_mode(self, mode):
+        if mode == "ft":
+            self.forward = lambda x: self.forward_from_features(x)
+        elif mode == "img":
+            self.forward = lambda x: self.extract_features(x)
+        else:
+            raise NotImplementedError
+        
 
     def forward(self, x, return_fts=False):
         """
@@ -225,9 +266,17 @@ class ClsModel(nn.Module):
             torch tensor [batch_size x num_classes]: logits.
             torch tensor [batch_size x num_classes_aux]: logits aux.
         """
+        if self.head_3d:
+            bs, n_frames, c, h, w = x.size()
+            x = x.view(bs * n_frames, c, h, w)
+            
         fts = self.extract_features(x)
 
         fts = self.dropout(fts)
+        
+        if self.head_3d:
+            fts = fts.view(bs, n_frames, -1)
+            fts = self.forward_head_3d(fts)
 
         logits, logits_aux = self.get_logits(fts)
 
