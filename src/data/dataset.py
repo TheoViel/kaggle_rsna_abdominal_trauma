@@ -1,6 +1,7 @@
 import os
 import cv2
 import time
+import glob
 import torch
 import numpy as np
 import pandas as pd
@@ -693,6 +694,10 @@ class PatientFeatureDataset(Dataset):
                     fts.append(seg)
                 elif mode == "seg3d":
                     pass
+                elif mode == "yolox":
+                    file = sorted(glob.glob(exp_folder + ".npy"))[fold]
+                    conf = np.load(file)
+                    fts.append(conf[:, None])
                 else:  # proba
                     ft = np.load(exp_folder + f"pred_val_{fold}.npy")
                     fts.append(ft)

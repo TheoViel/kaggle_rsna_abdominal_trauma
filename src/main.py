@@ -83,7 +83,7 @@ class Config:
     resize = (384, 384)
     frames_chanel = 1
     n_frames = 3
-    stride = 5
+    stride = 10
 
     aug_strength = 5
     crop = True
@@ -107,7 +107,7 @@ class Config:
     reduce_stride = False
     replace_pad_conv = False
     use_gem = True
-    head_3d = "lstm"
+    head_3d = "transfo"
 
     # Training
     loss_config = {
@@ -137,7 +137,7 @@ class Config:
 
     optimizer_config = {
         "name": "Ranger",
-        "lr": 3e-4,
+        "lr": 2e-4,
         "warmup_prop": 0.,
         "betas": (0.9, 0.999),
         "max_grad_norm": 1.,

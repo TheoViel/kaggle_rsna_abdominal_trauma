@@ -206,7 +206,7 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
     return pred_oof, pred_oof_aux
 
 
-def retrieve_preds(df_patient, df_img, config, exp_folder, folds=None):
+def retrieve_preds(df_patient, df_img, config, exp_folder, custom_agg=False, folds=None):
     dfs = []
     for fold in config.selected_folds if folds is None else folds:
 
@@ -223,8 +223,28 @@ def retrieve_preds(df_patient, df_img, config, exp_folder, folds=None):
             preds_cols.append(f'pred_{i}')
             df_preds[f'pred_{i}'] = preds[:, i]
 
-        df_preds = df_preds.groupby('patient_id').mean()
+        if custom_agg:
+            df_preds_avg = df_preds.groupby('patient_id').mean()
+            df_preds_max = df_preds.groupby('patient_id').max()
+            
+            df_preds = df_preds_avg.copy()
+            df_preds['pred_0'] = df_preds_max['pred_0']
+#             df_preds['pred_3'] = df_preds_max['pred_3']
+#             df_preds['pred_4'] = df_preds_max['pred_4']
+#             df_preds['pred_2'] = 1 - df_preds['pred_3'] - df_preds['pred_4']
+            
+#             df_preds['pred_6'] = df_preds_max['pred_6']
+#             df_preds['pred_7'] = df_preds_max['pred_7']
+#             df_preds['pred_5'] = 1 - df_preds['pred_6'] - df_preds['pred_7']
+            
+#             df_preds['pred_9'] = df_preds_max['pred_9']
+#             df_preds['pred_10'] = df_preds_max['pred_10']
+#             df_preds['pred_8'] = 1 - df_preds['pred_10'] - df_preds['pred_9']
+        else:
+            df_preds = df_preds.groupby('patient_id').mean()
         df = df_val.merge(df_preds, on="patient_id")
+        
+        
         dfs.append(df)
 
     df_oof = pd.concat(dfs, ignore_index=True)

@@ -1,13 +1,19 @@
 import sys
 import timm
 import torch
+import warnings
 import torch.nn as nn
 import torch.nn.functional as F
 
 from model_zoo.gem import GeM
 # from model_zoo.pad_conv import replace_conv2d_same
-
 from util.torch import load_model_weights
+
+from transformers import AutoConfig
+from model_zoo.transfo import DebertaV2Output
+from transformers.models.deberta_v2.modeling_deberta_v2 import DebertaV2Encoder
+
+warnings.simplefilter(action="ignore", category=UserWarning)
 
 
 def define_model(
@@ -128,7 +134,23 @@ class ClsModel(nn.Module):
         
         if head_3d == "lstm":
             self.lstm = nn.LSTM(self.nb_ft, self.nb_ft // 4, batch_first=True, bidirectional=True)
-
+        elif head_3d == "transfo":
+            name = "microsoft/deberta-v3-base"
+            config = AutoConfig.from_pretrained(name, output_hidden_states=True)
+            config.hidden_size = self.nb_ft
+            config.intermediate_size = self.nb_ft
+            config.output_size = self.nb_ft // 2
+            config.num_hidden_layers = 1
+            config.num_attention_heads = 8
+            config.attention_probs_dropout_prob = 0.1
+            config.hidden_dropout_prob = 0.1
+            config.hidden_act = nn.Mish()
+            config.max_relative_positions = 10
+            config.position_buckets = 10
+            config.skip_output = True
+            self.transfo = DebertaV2Encoder(config)
+            self.transfo.layer[0].output = DebertaV2Output(config)
+            
         self.logits = nn.Linear(self.nb_ft, num_classes)
         if self.num_classes_aux:
             self.logits_aux = nn.Linear(self.nb_ft, num_classes_aux)
@@ -224,14 +246,23 @@ class ClsModel(nn.Module):
     def forward_head_3d(self, x):
         if self.head_3d == "avg":
             return x.mean(1)
-        elif self.head_3d == "avg":
+        elif self.head_3d == "max":
             return x.amax(1)
 
-        if self.head_3d == "lstm":
+        elif self.head_3d == "lstm":
             x, _ = self.lstm(x)
             mean = x.mean(1)
             max_ = x.amax(1)
             x = torch.cat([mean, max_], -1)
+        elif self.head_3d == "transfo":
+            x = self.transfo(
+                x,
+                torch.ones((x.size(0), x.size(1))).to(x.device).bool()
+            ).last_hidden_state
+            mean = x.mean(1)
+            max_ = x.amax(1)
+            x = torch.cat([mean, max_], -1)
+
         return x
     
     def forward_from_features(self, fts):
