@@ -29,7 +29,7 @@ def process(patient, study, size=None, save_folder="", data_path=""):
         if size is not None:
             img = cv2.resize(img, (size, size))
 
-        all_imgs[save_folder + f"{patient}_{study}_{i}.png"] =  (img * 255).astype(np.uint8)
+        all_imgs[save_folder + f"{patient}_{study}_{i:04d}.png"] =  (img * 255).astype(np.uint8)
     return all_imgs
 
 

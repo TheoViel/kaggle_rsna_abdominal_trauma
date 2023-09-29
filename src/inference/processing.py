@@ -5,6 +5,41 @@ import dicomsdl
 import numpy as np
 
 
+def restrict_imgs(img_paths, max_len=600, margin=10):
+    n_imgs = len(img_paths)
+    
+    if n_imgs > 400:
+        img_paths = img_paths[n_imgs // 6 - margin:]
+    else:
+        img_paths = img_paths[max(n_imgs // 8 - margin, 0):]
+            
+    img_paths = img_paths[- max_len - margin :]
+    
+    return img_paths, n_imgs
+
+
+def center_crop_pad_gpu(img, size=384):
+    h, w = img.size()
+    if h >= size:
+        margin = (h - size) // 2
+        img = img[margin : margin + size, :]
+    else:
+        new_img = torch.zeros([size, w]).cuda()
+        margin = (size - h) // 2
+        new_img[margin: margin + h, :] = img
+        img = new_img
+    if w >= size:
+        margin = (w - size) // 2
+        img = img[:, margin : margin + size]
+    else:
+        new_img = torch.zeros([size, size]).cuda()
+        margin = (size - w) // 2
+        new_img[:, margin: margin + w] = img
+        img = new_img
+    
+    return img
+
+
 def dicomsdl_to_numpy_image(dicom, index=0):
     info = dicom.getPixelDataInfo()
     dtype = info["dtype"]
@@ -21,10 +56,27 @@ def load_img_dicomsdl(f):
     return dicomsdl_to_numpy_image(dicomsdl.open(f))
 
 
-def process(patient, study, on_gpu=False, data_path=""):
-    all_imgs = {}
-    imgs = {}
+def process(patient, study, on_gpu=False, data_path="", crop_size=None, restrict=False):
+    # Retrieve order
+    zs = {}
     for f in sorted(glob.glob(data_path + f"{patient}/{study}/*.dcm")):
+        try:
+            dicom = pydicom.dcmread(f, stop_before_pixels=True)
+            pos_z = dicom[(0x20, 0x32)].value[-1]
+            zs[pos_z] = f
+        except:
+            pass
+    sorted_imgs = [zs[k] for k in sorted(zs.keys())]
+
+    # Restrict
+    if restrict:
+        sorted_imgs, n_imgs = restrict_imgs(sorted_imgs)
+    else:
+        n_imgs = len(sorted_imgs)
+    
+    # Load
+    all_imgs = {}
+    for i, f in enumerate(sorted_imgs): # glob.glob(data_path + f"{patient}/{study}/*.dcm")):
         try:
             dicom = pydicom.dcmread(f)
 
@@ -33,25 +85,30 @@ def process(patient, study, on_gpu=False, data_path=""):
             except:
                 pixel_array = None
 
-            pos_z = dicom[(0x20, 0x32)].value[-1]
-
             img = standardize_pixel_array(dicom, pixel_array=pixel_array, on_gpu=on_gpu)
             img = (img - img.min()) / (img.max() - img.min() + 1e-6)
+            
+            if crop_size is not None:
+                if on_gpu:
+                    img = center_crop_pad_gpu(img, size=crop_size)
+                else:
+                    raise NotImplementedError
 
             if dicom.PhotometricInterpretation == "MONOCHROME1":
                 img = 1 - img
 
             if on_gpu:
                 img = img.cpu().numpy()  # TODO : REMOVE
-            imgs[pos_z] = img
+
+            all_imgs[f"{patient}_{study}_{i:04d}.png"] = img.astype(np.float32)
 
         except:
             pass
 
-    for i, k in enumerate(sorted(imgs.keys())):
-        all_imgs[f"{patient}_{study}_{i}.png"] = imgs[k].astype(np.float32)
+#     for i, k in enumerate(sorted(imgs.keys())):
+#         all_imgs[f"{patient}_{study}_{i:04d}.png"] = imgs[k].astype(np.float32)
 
-    return all_imgs
+    return all_imgs, n_imgs
 
 
 def standardize_pixel_array(

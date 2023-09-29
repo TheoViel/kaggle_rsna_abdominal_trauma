@@ -1,10 +1,39 @@
 import torch
 import numpy as np
+
+# from data.dataset import get_frames
 from torch.utils.data import Dataset, DataLoader
 
 
-class Abdominal2DInfDataset(Dataset):
-    def __init__(self, df, transforms=None, frames_chanel=0, imgs={}):
+def get_frames(frame, n_frames, frames_c, stride=1, max_frame=100, min_frame=0):
+    frames = np.arange(n_frames) * stride
+    frames = frames - frames[n_frames // 2] + frame
+
+    if frames_c:
+        offset = np.tile(np.arange(-1, 2) * frames_c, len(frames))
+        frames = np.repeat(frames, 3) + offset
+
+    if frames.min() < 0:
+        frames -= frames.min()
+    elif frames.max() > max_frame:
+        frames += max_frame - frames.max()
+
+    frames = np.clip(frames, min_frame, max_frame)
+    return frames
+
+
+class AbdominalInfDataset(Dataset):
+    def __init__(
+        self,
+        df,
+        transforms=None,
+        frames_chanel=0,
+        n_frames=1,
+        stride=1,
+        use_mask=False,
+        imgs={},
+        features=[],
+    ):
         """
         Constructor.
 
@@ -14,12 +43,25 @@ class Abdominal2DInfDataset(Dataset):
             transforms (albu transforms, optional): Transforms to apply to images and masks. Defaults to None.
         """
         self.df = df
-        self.info = self.df[["path", "series", "frame"]].values
+        self.info = self.df[['path', "patient_id", 'series', 'frame']].values
         self.transforms = transforms
-        self.frames_chanel = frames_chanel
-        self.max_frames = dict(df[["series", "frame"]].groupby("series").max()["frame"])
 
+        self.frames_chanel = frames_chanel
+        self.n_frames = n_frames
+        self.stride = stride
+
+        self.max_frames = dict(df[["series", "frame"]].groupby("series").max()['frame'])
+        self.min_frames = dict(df[["series", "frame"]].groupby("series").min()["frame"])
+
+#         self.use_mask = use_mask
+#         self.mask_folder = "../logs/2023-09-24/20/masks/"
+        
         self.imgs = imgs
+        self.features = features
+
+        if len(features):
+            self.features = dict(zip(self.get_keys(), features))
+            
 
     def __len__(self):
         """
@@ -29,6 +71,32 @@ class Abdominal2DInfDataset(Dataset):
             int: Length of the dataset.
         """
         return len(self.df)
+    
+    def get_keys(self):
+        keys = []
+        for idx in range(len(self.df)):
+            path, patient, series, frame = self.info[idx]
+            frames = get_frames(
+                frame, 1, self.frames_chanel, stride=1, max_frame=self.max_frames[series]
+            )
+            key = f'{patient}_{series}_{"-".join(list(frames.astype(str)))}'
+            keys.append(key)
+        return keys
+
+    def _getitem_feature(self, idx):
+        path, patient, series, frame = self.info[idx]
+        
+        all_frames = get_frames(
+            frame, self.n_frames, self.frames_chanel, stride=self.stride, max_frame=self.max_frames[series]
+        )
+        all_frames = all_frames.reshape(-1, 3)
+        
+        fts = []
+        for frames in all_frames:
+            key = f'{patient}_{series}_{"-".join(list(frames.astype(str)))}'
+            fts.append(self.features[key])
+        fts = np.array(fts)
+        return fts, 0, 0
 
     def __getitem__(self, idx):
         """
@@ -42,17 +110,47 @@ class Abdominal2DInfDataset(Dataset):
             torch.Tensor: Mask as a tensor of shape [1 or 7, H, W].
             torch.Tensor: Label as a tensor of shape [1].
         """
-        path, series, frame = self.info[idx]
+        if len(self.features):
+            return self._getitem_feature(idx)
 
-        image = self.imgs[path]
-        #         if len(image.shape) == 2:
-        #             image = np.concatenate([image[:, :, None]] * 3, -1)
+        path, patient, series, frame = self.info[idx]
+
+        frames = get_frames(
+            frame,
+            1,
+            self.frames_chanel,
+            stride=1,
+            max_frame=self.max_frames[series],
+            min_frame=self.min_frames[series]
+        )
+        
+#         print(frames)
+
+        paths = [path.rsplit('_', 1)[0] + f'_{f:04d}.png' for f in frames]
+
+        image = []
+        for path, frame in zip(paths, frames):
+#             try:
+            img = self.imgs[path]
+                
+#             except:
+#                 img = cv2.imread(path, 0)
+
+#                 if not (idx + 1 % 10000):  # clear buffer
+#                     self.imgs = {}
+#                 self.imgs[path] = img
+
+            image.append(img)
+        image = np.array(image).transpose(1, 2, 0)
+
+#         image = image.astype(np.float32) / 255.
 
         if self.transforms:
             transformed = self.transforms(image=image)
             image = transformed["image"]
 
-        #         image = torch.cat([image] * 3)
+        if image.size(0) == 1:
+            image = image.repeat(3, 1, 1)
 
         return image, 0, 0
 

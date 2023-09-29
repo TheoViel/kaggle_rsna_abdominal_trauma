@@ -60,7 +60,6 @@ def predict(
         dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
     )
 
-    
     with torch.no_grad():
         for x, _, _ in tqdm(loader):
             with torch.cuda.amp.autocast(enabled=use_fp16):
@@ -107,8 +106,6 @@ def predict_distributed(
         local_rank=local_rank,
     )[1]
 
-    
-    preds = None
     with torch.no_grad():
         for x, _, _ in tqdm(loader, disable=(local_rank!=0) or disable_tqdm):
             with torch.cuda.amp.autocast(enabled=use_fp16):
@@ -124,23 +121,18 @@ def predict_distributed(
                 y_pred[:, 5:8] = y_pred[:, 5:8].softmax(-1)
                 y_pred[:, 8:] = y_pred[:, 8:].softmax(-1)
 
-                
-            if preds is None:
-                preds = y_pred.detach().contiguous()
-            else:
-                preds = torch.cat([preds, y_pred.detach().contiguous()], 0)
-#             preds.append(y_pred.detach())
-#     preds = torch.cat(preds, 0)
+            preds.append(y_pred.detach())
+    preds = torch.cat(preds, 0).contiguous()
 
     if distributed:
         preds = sync_across_gpus(preds, world_size)
         torch.distributed.barrier()
 
-#     if local_rank == 0:
-    preds = preds.cpu().numpy()
-    return preds
-#     else:
-#         return 0
+    if local_rank == 0:
+        preds = preds.cpu().numpy()
+        return preds
+    else:
+        return 0
 
 
 def kfold_inference(
@@ -248,17 +240,16 @@ def kfold_inference(
                     local_rank=config.local_rank,
                     disable_tqdm=True,
                 )
-#                 if config.local_rank == 0:
-                features_chunk = features_chunk[:len(dataset)]
+                if config.local_rank == 0:
+                    features_chunk = features_chunk[:len(dataset)]
 #                     if features is None:
 #                         features = features_chunk
 #                     else:
 #                         features = np.concatenate([features, features_chunk], 0)
-                if idx == 0:
-                    features = np.zeros((len(df_val),) + features_chunk.shape[1:], dtype=features_chunk.dtype)
-                features[idx: idx + len(features_chunk)] = features_chunk
-                idx += len(features_chunk)
-                
+                    if idx == 0:
+                        features = np.zeros((len(df_val),) + features_chunk.shape[1:], dtype=features_chunk.dtype)
+                    features[idx: idx + len(features_chunk)] = features_chunk
+                    idx += len(features_chunk)
         else:
             dataset = AbdominalInfDataset(
                 df_val,
@@ -281,37 +272,33 @@ def kfold_inference(
             )
 
         # 3D head
-#         if config.local_rank == 0:
-#             if distributed:
-#                 model = model.module
-
-        model.module.set_mode("ft")
-
-        dataset = AbdominalInfDataset(
-            df_val,
-            transforms=transforms,
-            frames_chanel=config.frames_chanel,
-            n_frames=config.n_frames,
-            stride=config.stride,
-            features=features,
-        )
-
-        pred = predict_fct(
-            model,
-            dataset,
-            config.loss_config,
-            batch_size=512,
-            use_fp16=use_fp16,
-            num_workers=num_workers,
-            world_size=config.world_size,
-            local_rank=config.local_rank,
-            disable_tqdm=(config.local_rank != 0),
-        )
-
         if config.local_rank == 0:
+            if distributed:
+                model = model.module
+
+            model.set_mode("ft")
+
+            dataset = AbdominalInfDataset(
+                df_val,
+                transforms=transforms,
+                frames_chanel=config.frames_chanel,
+                n_frames=config.n_frames,
+                stride=config.stride,
+                features=features,
+            )
+
+            pred = predict(
+                model,
+                dataset,
+                config.loss_config,
+                batch_size=512,
+                use_fp16=use_fp16,
+                num_workers=num_workers,
+            )
+
             if save:
                 np.save(exp_folder + f"pred_val_{fold}.npy", pred)
-
+            
             pred_cols = []
             for i, tgt in enumerate(IMAGE_TARGETS):
                 df_val[f"pred_{tgt}"] = pred[:len(df_val), i]
@@ -329,12 +316,12 @@ def kfold_inference(
                 except:
                     continue
                 print(f'- {tgt} auc : {auc:.3f}')
-
+                
             losses, avg_loss = rsna_loss(
                 df_val_patient[["pred_bowel_injury", "pred_extravasation_injury"]].values,
                 df_val_patient
             )
             for k, v in losses.items():
                 print(f"- {k.split('_')[0][:8]} loss\t: {v:.3f}")
-                
+
 #         break

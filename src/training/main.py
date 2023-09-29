@@ -86,6 +86,7 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
         drop_path_rate=config.drop_path_rate,
         use_gem=config.use_gem,
         head_3d=config.head_3d,
+        n_frames=config.n_frames,
         replace_pad_conv=config.replace_pad_conv,
         num_classes=config.num_classes,
         num_classes_aux=config.num_classes_aux,

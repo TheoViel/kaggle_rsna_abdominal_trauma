@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from transformers import AutoConfig
-from model_zoo.transfo import DebertaV2Output
+from model_zoo.seq import DebertaV2Output
 from transformers.models.deberta_v2.modeling_deberta_v2 import DebertaV2Encoder
 
 
@@ -186,6 +186,7 @@ class RNNAttModel(nn.Module):
 
         self.lstm = nn.LSTM(dense_dim, lstm_dim, batch_first=True, bidirectional=True)
     
+        n_fts = 4
         self.logits_bowel = nn.Sequential(
             nn.Dropout(p=p),
             nn.Linear(2 * (lstm_dim * 2 + dense_dim) + n_fts, dense_dim),
@@ -198,6 +199,7 @@ class RNNAttModel(nn.Module):
             nn.Mish(),
             nn.Linear(dense_dim, 1),
         )
+        n_fts = 8
         self.logits_spleen = nn.Sequential(
             nn.Dropout(p=p),
             nn.Linear(2 * (lstm_dim * 2 + dense_dim) + n_fts, dense_dim),
@@ -237,6 +239,26 @@ class RNNAttModel(nn.Module):
 #         liver = x[:, :, :1]
 #         spleen = x[:, :, 1: 2]
 #         bowel = x[:, :, 3: 4]
+
+        scores = x[:, :, 5:].view(x.size(0), x.size(1), -1, 11 * 2)
+        pooled_scores = scores.mean(2).view(x.size(0), x.size(1), 2, 11)
+
+        pooled_scores = torch.cat([pooled_scores.amax(1), pooled_scores.mean(1)], 1)
+#         pooled_scores = pooled_scores.amax(1)
+#         print(pooled_scores.size())
+
+        pooled_scores_bowel = pooled_scores[:, :, :1].flatten(1, 2)
+        pooled_scores_extrav = pooled_scores[:, :, 1: 2].flatten(1, 2)
+        pooled_scores_kidney = pooled_scores[:, :, 3: 5].flatten(1, 2)
+        pooled_scores_liver = pooled_scores[:, :, 6: 8].flatten(1, 2)
+        pooled_scores_spleen = pooled_scores[:, :, 9: 11].flatten(1, 2)
+
+#         print(pooled_scores_bowel.size())
+#         print(pooled_scores_extrav)
+#         print(pooled_scores_kidney)
+#         print(pooled_scores_liver)
+#         print(pooled_scores_spleen)
+#         print(pooled_scores_bowel)
         
         att_bowel, max_bowel = self.attention_pooling(features, bowel)
         att_kidney, max_kidney = self.attention_pooling(features, kidney)
@@ -246,11 +268,11 @@ class RNNAttModel(nn.Module):
         mean = features.mean(1)
         max_ = features.amax(1)
 
-        logits_bowel = self.logits_bowel(torch.cat([att_bowel, max_bowel], -1))
-        logits_extrav = self.logits_extrav(torch.cat([mean, max_], -1))
-        logits_kidney  = self.logits_kidney(torch.cat([att_kidney, max_kidney], -1))
-        logits_liver = self.logits_liver(torch.cat([att_liver, max_liver], -1))
-        logits_spleen = self.logits_spleen(torch.cat([att_spleen, max_spleen], -1))
+        logits_bowel = self.logits_bowel(torch.cat([att_bowel, max_bowel, pooled_scores_bowel], -1))
+        logits_extrav = self.logits_extrav(torch.cat([mean, max_, pooled_scores_extrav], -1))
+        logits_kidney  = self.logits_kidney(torch.cat([att_kidney, max_kidney, pooled_scores_kidney], -1))
+        logits_liver = self.logits_liver(torch.cat([att_liver, max_liver, pooled_scores_liver], -1))
+        logits_spleen = self.logits_spleen(torch.cat([att_spleen, max_spleen, pooled_scores_spleen], -1))
 
         logits = torch.cat(
             [logits_bowel, logits_extrav, logits_kidney, logits_liver, logits_spleen],

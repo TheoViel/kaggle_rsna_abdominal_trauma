@@ -82,8 +82,8 @@ class Config:
     # Data
     resize = (384, 384)
     frames_chanel = 1
-    n_frames = 3
-    stride = 10
+    n_frames = 5
+    stride = 3
 
     aug_strength = 5
     crop = True
@@ -107,7 +107,7 @@ class Config:
     reduce_stride = False
     replace_pad_conv = False
     use_gem = True
-    head_3d = "transfo"
+    head_3d = "cnn"
 
     # Training
     loss_config = {

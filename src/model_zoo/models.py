@@ -1,5 +1,6 @@
 import sys
 import timm
+import copy
 import torch
 import warnings
 import torch.nn as nn
@@ -10,7 +11,7 @@ from model_zoo.gem import GeM
 from util.torch import load_model_weights
 
 from transformers import AutoConfig
-from model_zoo.transfo import DebertaV2Output
+from model_zoo.seq import DebertaV2Output, SequenceLayer
 from transformers.models.deberta_v2.modeling_deberta_v2 import DebertaV2Encoder
 
 warnings.simplefilter(action="ignore", category=UserWarning)
@@ -29,6 +30,7 @@ def define_model(
     drop_path_rate=0,
     use_gem=False,
     head_3d="",
+    n_frames=1,
     verbose=1,
     replace_pad_conv=False,
 ):
@@ -74,6 +76,7 @@ def define_model(
         drop_rate=drop_rate,
         use_gem=use_gem,
         head_3d=head_3d,
+        n_frames=n_frames,
     )
 
     if pretrained_weights:
@@ -107,6 +110,7 @@ class ClsModel(nn.Module):
         drop_rate=0,
         use_gem=False,
         head_3d="",
+        n_frames=1
     ):
         """
         Constructor.
@@ -134,6 +138,7 @@ class ClsModel(nn.Module):
         
         if head_3d == "lstm":
             self.lstm = nn.LSTM(self.nb_ft, self.nb_ft // 4, batch_first=True, bidirectional=True)
+
         elif head_3d == "transfo":
             name = "microsoft/deberta-v3-base"
             config = AutoConfig.from_pretrained(name, output_hidden_states=True)
@@ -145,11 +150,51 @@ class ClsModel(nn.Module):
             config.attention_probs_dropout_prob = 0.1
             config.hidden_dropout_prob = 0.1
             config.hidden_act = nn.Mish()
-            config.max_relative_positions = 10
-            config.position_buckets = 10
+            config.max_relative_positions = n_frames
+            config.position_buckets = n_frames
             config.skip_output = True
             self.transfo = DebertaV2Encoder(config)
             self.transfo.layer[0].output = DebertaV2Output(config)
+    
+        elif head_3d == "cnn":
+            num_layers = 1 # if n_frames == 3 else 2
+            temporal_k_size = n_frames if num_layers == 1 else 3
+            
+            self.cnn = []
+            for m in list(self.encoder.modules())[::-1]:
+                if num_layers == 0:
+                    break
+
+                if "ConvNeXtBlock" in str(type(m)):
+                    orig_conv = m.conv_dw
+                    
+                    sequence_conv = SequenceLayer(
+                        n_frames,
+                        orig_conv.in_channels,
+                        orig_conv.out_channels,
+                        orig_conv.kernel_size,
+                        orig_conv.padding,
+                        orig_conv.groups,
+                        bias=True,
+                        temporal_k_size=temporal_k_size,
+                    )
+                    for j in range(temporal_k_size):
+                        sequence_conv.conv.weight.data[:, :, j, :, :].copy_(
+                            orig_conv.weight.data / temporal_k_size   # ???
+                        )
+                    sequence_conv.conv.bias.data.copy_(orig_conv.bias.data)
+
+                    m.conv_dw = sequence_conv
+                    num_layers -= 1
+#                     print("Replace", orig_conv, "with", sequence_conv)
+                    self.cnn.append(copy.deepcopy(m))
+                    m.conv_dw = nn.Identity()
+                    m.norm = nn.Identity()
+                    m.mlp = nn.Identity()
+                    m.conv_pw = nn.Identity()
+            
+            self.cnn = nn.Sequential(*self.cnn[::-1])
+            self.cnn.seq_length = n_frames
             
         self.logits = nn.Linear(self.nb_ft, num_classes)
         if self.num_classes_aux:
@@ -215,12 +260,14 @@ class ClsModel(nn.Module):
         """
         fts = self.encoder(x)
 
-        if self.use_gem:
-            fts = self.global_pool(fts)[:, :, 0, 0]
-        else:
-            while len(fts.size()) > 2:
-                fts = fts.mean(-1)
-
+        if self.head_3d != "cnn":
+            if self.use_gem:
+                fts = self.global_pool(fts)[:, :, 0, 0]
+            else:
+                while len(fts.size()) > 2:
+                    fts = fts.mean(-1)
+                    
+            fts = self.dropout(fts)
         return fts
 
     def get_logits(self, fts):
@@ -262,6 +309,21 @@ class ClsModel(nn.Module):
             mean = x.mean(1)
             max_ = x.amax(1)
             x = torch.cat([mean, max_], -1)
+        elif self.head_3d == "cnn":
+            if len(x.shape) == 5:  # bs x n_frames x c x h x w -> bs * n_frames x c x h x w
+                x = x.flatten(0, 1)
+
+            x = self.cnn(x)
+
+            if self.use_gem:
+                x = self.global_pool(x)[:, :, 0, 0]
+            else:
+                while len(x.size()) > 2:
+                    x = x.mean(-1)
+                    
+            x = self.dropout(x)  # - NOT USED BUT SHOULD PROBABLY BE
+
+            x = x.view(x.size(0) // self.cnn.seq_length, self.cnn.seq_length, -1).mean(1)
 
         return x
     
@@ -303,10 +365,9 @@ class ClsModel(nn.Module):
             
         fts = self.extract_features(x)
 
-        fts = self.dropout(fts)
-        
         if self.head_3d:
-            fts = fts.view(bs, n_frames, -1)
+            if self.head_3d != "cnn":
+                fts = fts.view(bs, n_frames, -1)
             fts = self.forward_head_3d(fts)
 
         logits, logits_aux = self.get_logits(fts)

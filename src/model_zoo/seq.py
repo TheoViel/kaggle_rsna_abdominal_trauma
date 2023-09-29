@@ -50,4 +50,29 @@ class DebertaV2Output(nn.Module):
         hidden_states = self.dropout(hidden_states)
         hidden_states = self.LayerNorm(hidden_states)
         return hidden_states
-    
+
+
+class SequenceLayer(nn.Module):
+    """
+    From https://github.com/pascal-pfeiffer/kaggle-rsna-2022-5th-place/
+    """
+    def __init__(
+        self, seq_length, in_channels, out_channels, kernel_size, padding, groups, bias, temporal_k_size=3
+    ):
+        super().__init__()
+        self.conv = nn.Conv3d(
+            in_channels,
+            out_channels,
+            kernel_size=(temporal_k_size, kernel_size[0], kernel_size[1]),
+            padding=(temporal_k_size // 2, padding[0], padding[1]),
+            groups=groups,
+            bias=bias,
+        )
+        self.seq_length = seq_length
+
+    def forward(self, x):        
+        bs, c, h, w = x.shape
+        x = x.view(bs // self.seq_length, self.seq_length, c, h, w)
+        x = self.conv(x.transpose(1, 2).contiguous()).transpose(2, 1).contiguous()
+        x = x.flatten(0, 1)
+        return x

@@ -36,7 +36,7 @@ def get_frames(frame, n_frames, frames_c, stride=1, max_frame=100):
         offset = np.tile(np.arange(-1, 2) * frames_c, len(frames))
         frames = np.repeat(frames, 3) + offset
 
-    if frames.min() <= 0:
+    if frames.min() <= 0:  # BUG ??
         frames -= frames.min() - 1
     elif frames.max() > max_frame:
         frames += max_frame - frames.max()
@@ -869,58 +869,3 @@ class PatientFeatureDataset(Dataset):
         y = torch.from_numpy(y).float()  # bowel, extravasion, kidney, liver, spleen
 
         return fts, y, 0
-
-
-class PatientFeatureInfDataset(Dataset):
-    def __init__(self, series, exp_folders, max_len=None, save_folder=""):
-        self.fts = self.retrieve_features(series, exp_folders, save_folder=save_folder)
-        self.ids = [0]
-        self.max_len = max_len
-
-    @staticmethod
-    def retrieve_features(series, exp_folders, save_folder=""):
-        all_fts = []
-        exp_names = ["_".join(exp_folder.split('/')[-3:-1]) for exp_folder, _ in exp_folders]
-
-        for s in series:
-            fts = []
-            for exp_name, (exp_folder, mode) in zip(exp_names, exp_folders):
-                prefix = 'fts' if "ft" in mode else 'pred'
-                ft = np.load(save_folder + f'{s}_{exp_name}.npy')
-                fts.append(ft)
-
-                if "proba" in mode:
-                    seg = fts[0]
-                    if ft.shape[-1] == 11:
-                        fts.append(np.concatenate([
-                            ft[:, :1] * seg[:, -1:],  # bowel
-                            ft[:, 1:2] * seg.max(-1, keepdims=True),  # extravasation
-                            ft[:, 2: 5] * seg[:, 2: 4].max(-1, keepdims=True),  # kidney
-                            ft[:, 5: 8] * seg[:, :1],  # liver
-                            ft[:, 8:] * seg[:, 1:2],  # spleen
-                        ], -1))
-
-            fts = np.concatenate(fts, axis=1)
-            all_fts.append(fts)
-            
-        return all_fts
-
-    def pad(self, x):
-        length = x.shape[0]
-        if length > self.max_len:
-            return x[: self.max_len]
-        else:
-            padded = np.zeros([self.max_len] + list(x.shape[1:]))
-            padded[:length] = x
-            return padded
-        
-    def __len__(self):
-        return len(self.fts)
-
-    def __getitem__(self, idx):
-        fts = self.fts[idx]
-        if self.max_len is not None:
-            fts = self.pad(fts)
-        fts = torch.from_numpy(fts).float()
-
-        return fts, 0, 0

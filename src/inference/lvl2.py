@@ -3,7 +3,97 @@ import torch
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
+import torch.nn.functional as F
+
+
+class PatientFeatureInfDataset(Dataset):
+    def __init__(
+        self,
+        series,
+        exp_folders,
+        max_len=None,
+        restrict=False,
+        resize=None,
+        save_folder=""
+    ):
+        self.fts = self.retrieve_features(series, exp_folders, save_folder=save_folder)
+        self.ids = [0]
+        self.max_len = max_len
+        self.restrict = restrict
+        self.resize = resize
+
+    @staticmethod
+    def retrieve_features(series, exp_folders, save_folder=""):
+        all_fts = []
+        exp_names = ["_".join(exp_folder.split('/')[-3:-1]) for exp_folder, _ in exp_folders]
+
+        for s in series:
+            fts = []
+            for exp_name, (exp_folder, mode) in zip(exp_names, exp_folders):
+                if mode == "seg":
+                    seg = np.load(save_folder + f"{s}_{exp_name}.npy")
+                    fts.append(seg)
+                elif mode == "seg3d":
+                    raise NotImplementedError
+                elif mode == "yolox":
+                    raise NotImplementedError
+                else:  # proba
+                    ft = np.load(save_folder + f"{s}_{exp_name}.npy")
+                    fts.append(ft)
+
+                    kidney = seg[:, 2: 4].max(-1, keepdims=True) if seg.shape[-1] == 5 else seg[:, 2: 3]
+                    fts.append(np.concatenate([
+                        ft[:, :1] * seg[:, -1:],  # bowel
+                        ft[:, 1:2] * seg.max(-1, keepdims=True),  # extravasation
+                        ft[:, 2: 5] * kidney,  # kidney
+                        ft[:, 5: 8] * seg[:, :1],  # liver
+                        ft[:, 8:] * seg[:, 1:2],  # spleen
+                    ], -1))
+
+            fts = np.concatenate(fts, axis=1)
+            all_fts.append(fts)
+        return all_fts
+    
+    def pad(self, x):
+        length = x.shape[0]
+        if length > self.max_len:
+            return x[-self.max_len:]
+        else:
+            padded = np.zeros([self.max_len] + list(x.shape[1:]))
+            padded[-length:] = x
+            return padded
+        
+    def __len__(self):
+        return len(self.fts)
+
+    def __getitem__(self, idx):
+        fts = self.fts[idx]
+        
+        # THIS WORKS :
+        if self.restrict:
+            if len(fts) > 400:
+                fts = fts[len(fts) // 6:]
+            else:
+                fts = fts[len(fts) // 8:]
+        
+        if self.resize:
+            if self.max_len is not None:  # crop too long
+                fts = fts[-self.max_len:]
+
+            fts = F.interpolate(
+                torch.from_numpy(fts.T).float().unsqueeze(0),
+                size=self.resize,
+                mode="linear"
+            )[0].transpose(0, 1)
+
+        else:
+            if self.max_len is not None:
+                fts = self.pad(fts)
+                
+            fts = torch.from_numpy(fts).float()
+
+        return fts, 0, 0
 
 
 def predict(model, dataset, loss_config, batch_size=64, device="cuda", use_fp16=False, num_workers=8):
