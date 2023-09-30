@@ -4,7 +4,7 @@ import nibabel
 import numpy as np
 import pandas as pd
 
-from params import SEG_TARGETS
+from params import SEG_TARGETS, CROP_TARGETS
 
 
 def prepare_folds(data_path="../input/", k=4):
@@ -141,3 +141,21 @@ def auto_windowing(img):
     img = (img * 255).astype(np.uint8)
 
     return img, (start, end)
+
+
+def get_df_series(df_patient, df_img):
+    df_series = df_img[['patient_id', "series", "frame"]].groupby(
+        ['patient_id', "series"]
+    ).max().reset_index()
+    df_series = df_series.merge(df_patient[["patient_id"] + CROP_TARGETS], on="patient_id", how="left")
+
+    df_series['target'] = df_series[CROP_TARGETS].values.tolist()
+    df_series = df_series.explode('target')
+
+    df_series['organ'] = ['kidney', 'liver', 'spleen'] * (len(df_series) // 3)
+    df_series.drop(CROP_TARGETS, axis=1, inplace=True)
+    
+    df_series['img_path'] = "../input/crops/imgs/" + df_series['patient_id'].astype(str) + "_" + df_series['series'].astype(str) + "_" + df_series['organ'] + ".npy"
+    df_series['mask_path'] = "../input/crops/masks/" + df_series['patient_id'].astype(str) + "_" + df_series['series'].astype(str) + "_" + df_series['organ'] + ".npy"
+
+    return df_series

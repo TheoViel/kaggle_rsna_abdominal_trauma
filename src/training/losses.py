@@ -316,7 +316,7 @@ class AbdomenLoss(nn.Module):
             Tuple(torch.Tensor, torch.Tensor): Prepared predictions and targets.
         """
         if self.config["name"] == "ce":
-            y = y.squeeze()
+            y = y.squeeze(1)
         elif self.config["name"] in ["bce", "image"]:
             y = y.float()
             pred = pred.float().view(y.size())
@@ -353,7 +353,9 @@ class AbdomenLoss(nn.Module):
         Returns:
             torch.Tensor: Loss value.
         """
+#         print(pred.size(), y.size(), y.max())
         pred, pred_aux, y, y_aux = self.prepare(pred, pred_aux, y, y_aux)
+#         print(pred.size(), y.size(), y.max())
 
         loss = self.loss(pred, y)
 

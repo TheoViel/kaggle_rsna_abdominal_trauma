@@ -1,3 +1,5 @@
+import gc
+import os
 import json
 import torch
 import numpy as np
@@ -60,10 +62,11 @@ def predict(
         dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
     )
 
+    
     with torch.no_grad():
         for x, _, _ in tqdm(loader):
             with torch.cuda.amp.autocast(enabled=use_fp16):
-                y_pred = model(x.cuda())
+                y_pred, _ = model(x.cuda())
 
             # Get probabilities
             if loss_config["activation"] == "sigmoid":
@@ -106,10 +109,12 @@ def predict_distributed(
         local_rank=local_rank,
     )[1]
 
+    
+    preds = []  # None
     with torch.no_grad():
         for x, _, _ in tqdm(loader, disable=(local_rank!=0) or disable_tqdm):
             with torch.cuda.amp.autocast(enabled=use_fp16):
-                y_pred = model(x.cuda())
+                y_pred, _ = model(x.cuda())
 
             if loss_config["activation"] == "sigmoid":
                 y_pred = y_pred.sigmoid()
@@ -121,8 +126,12 @@ def predict_distributed(
                 y_pred[:, 5:8] = y_pred[:, 5:8].softmax(-1)
                 y_pred[:, 8:] = y_pred[:, 8:].softmax(-1)
 
+#             if preds is None:
+#                 preds = y_pred.detach().contiguous()
+#             else:
+#                 preds = torch.cat([preds, y_pred.detach().contiguous()], 0)
             preds.append(y_pred.detach())
-    preds = torch.cat(preds, 0).contiguous()
+    preds = torch.cat(preds, 0)
 
     if distributed:
         preds = sync_across_gpus(preds, world_size)
@@ -173,6 +182,10 @@ def kfold_inference(
         df_img = df_img.merge(folds, how="left")
 
     for fold in config.selected_folds:
+#         if save and os.path.exists(exp_folder + f"pred_val_{fold}.npy"):
+#         if fold in [0, 1]:
+#             continue
+
         if config.local_rank == 0:
             print(f"\n- Fold {fold + 1}")
 
@@ -196,7 +209,7 @@ def kfold_inference(
         weights = exp_folder + f"{config.name}_{fold}.pt"
         model = load_model_weights(model, weights, verbose=config.local_rank == 0)
         
-        model.set_mode("img")
+#         model.set_mode("img")
 
         if distributed:
             model = DistributedDataParallel(
@@ -213,92 +226,101 @@ def kfold_inference(
         # Extract features
         transforms = get_transfos(augment=False, resize=config.resize, crop=config.crop)
         
-        if config.head_3d == "cnn":
-            chunks = np.array_split(np.arange(len(df_val)), 32 if len(df_val) > 10000 else 4)
+#         if config.head_3d == "cnn":
+#             chunks = np.array_split(np.arange(len(df_val)), 32 if len(df_val) > 10000 else 4)
             
-            features = None
-            idx = 0
+#             features = None
+#             idx = 0
             
-            for chunk in tqdm(chunks, disable=(config.local_rank!=0)):
-                dataset = AbdominalInfDataset(
-                    df_val.iloc[chunk].reset_index(drop=True),
-                    transforms=transforms,
-                    frames_chanel=config.frames_chanel,
-                    n_frames=config.n_frames,
-                    stride=config.stride,
-                )
+#             for chunk in tqdm(chunks, disable=(config.local_rank!=0)):
+#                 dataset = AbdominalInfDataset(
+#                     df_val.iloc[chunk].reset_index(drop=True),
+#                     transforms=transforms,
+#                     frames_chanel=config.frames_chanel,
+#                     n_frames=config.n_frames,
+#                     stride=config.stride,
+#                 )
 
-                features_chunk = predict_fct(
-                    model,
-                    dataset,
-                    {"activation": "none"},
-                    batch_size=8,  # config.data_config["val_bs"] if batch_size is None else batch_size,
-                    use_fp16=use_fp16,
-                    num_workers=num_workers,
-                    distributed=distributed,
-                    world_size=config.world_size,
-                    local_rank=config.local_rank,
-                    disable_tqdm=True,
-                )
-                if config.local_rank == 0:
-                    features_chunk = features_chunk[:len(dataset)]
-#                     if features is None:
-#                         features = features_chunk
-#                     else:
-#                         features = np.concatenate([features, features_chunk], 0)
-                    if idx == 0:
-                        features = np.zeros((len(df_val),) + features_chunk.shape[1:], dtype=features_chunk.dtype)
-                    features[idx: idx + len(features_chunk)] = features_chunk
-                    idx += len(features_chunk)
-        else:
-            dataset = AbdominalInfDataset(
-                df_val,
-                transforms=transforms,
-                frames_chanel=config.frames_chanel,
-                n_frames=config.n_frames,
-                stride=config.stride,
-            )
+#                 features_chunk = predict_fct(
+#                     model,
+#                     dataset,
+#                     {"activation": "none"},
+#                     batch_size=8,  # config.data_config["val_bs"] if batch_size is None else batch_size,
+#                     use_fp16=use_fp16,
+#                     num_workers=num_workers,
+#                     distributed=distributed,
+#                     world_size=config.world_size,
+#                     local_rank=config.local_rank,
+#                     disable_tqdm=True,
+#                 )
+# #                 if config.local_rank == 0:
+#                 features_chunk = features_chunk[:len(dataset)]
+# #                     if features is None:
+# #                         features = features_chunk
+# #                     else:
+# #                         features = np.concatenate([features, features_chunk], 0)
+#                 if idx == 0:
+#                     features = np.zeros((len(df_val),) + features_chunk.shape[1:], dtype=features_chunk.dtype)
+#                 features[idx: idx + len(features_chunk)] = features_chunk
+#                 idx += len(features_chunk)
+                
+#                 torch.cuda.empty_cache()
+#                 gc.collect()
+                
+#         else:
+        dataset = AbdominalInfDataset(
+            df_val,
+            transforms=transforms,
+            frames_chanel=config.frames_chanel,
+            n_frames=config.n_frames,
+            stride=config.stride,
+        )
 
-            features = predict_fct(
-                model,
-                dataset,
-                {"activation": "none"},
-                batch_size=config.data_config["val_bs"] if batch_size is None else batch_size,
-                use_fp16=use_fp16,
-                num_workers=num_workers,
-                distributed=distributed,
-                world_size=config.world_size,
-                local_rank=config.local_rank,
-            )
+        pred = predict_fct(
+            model,
+            dataset,
+            config.loss_config,
+            batch_size=config.data_config["val_bs"] if batch_size is None else batch_size,
+            use_fp16=use_fp16,
+            num_workers=num_workers,
+            distributed=distributed,
+            world_size=config.world_size,
+            local_rank=config.local_rank,
+        )
 
         # 3D head
+#         if config.local_rank == 0:
+#             if distributed:
+#                 model = model.module
+
+#         model.module.set_mode("ft")
+
+#         dataset = AbdominalInfDataset(
+#             df_val,
+#             transforms=transforms,
+#             frames_chanel=config.frames_chanel,
+#             n_frames=config.n_frames,
+#             stride=config.stride,
+#             features=features,
+#         )
+
+#         pred = predict_fct(
+#             model,
+#             dataset,
+#             config.loss_config,
+#             batch_size=512,
+#             use_fp16=use_fp16,
+#             num_workers=num_workers,
+#             world_size=config.world_size,
+#             local_rank=config.local_rank,
+#             disable_tqdm=(config.local_rank != 0),
+#         )
+
         if config.local_rank == 0:
-            if distributed:
-                model = model.module
-
-            model.set_mode("ft")
-
-            dataset = AbdominalInfDataset(
-                df_val,
-                transforms=transforms,
-                frames_chanel=config.frames_chanel,
-                n_frames=config.n_frames,
-                stride=config.stride,
-                features=features,
-            )
-
-            pred = predict(
-                model,
-                dataset,
-                config.loss_config,
-                batch_size=512,
-                use_fp16=use_fp16,
-                num_workers=num_workers,
-            )
-
+            pred = pred[:len(df_val)]
             if save:
                 np.save(exp_folder + f"pred_val_{fold}.npy", pred)
-            
+
             pred_cols = []
             for i, tgt in enumerate(IMAGE_TARGETS):
                 df_val[f"pred_{tgt}"] = pred[:len(df_val), i]
@@ -316,12 +338,12 @@ def kfold_inference(
                 except:
                     continue
                 print(f'- {tgt} auc : {auc:.3f}')
-                
+
             losses, avg_loss = rsna_loss(
                 df_val_patient[["pred_bowel_injury", "pred_extravasation_injury"]].values,
                 df_val_patient
             )
             for k, v in losses.items():
                 print(f"- {k.split('_')[0][:8]} loss\t: {v:.3f}")
-
+                
 #         break

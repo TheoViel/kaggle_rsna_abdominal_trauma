@@ -1,4 +1,5 @@
 import os
+import re
 import cv2
 import time
 import glob
@@ -9,8 +10,8 @@ import torch.nn.functional as F
 
 from tqdm import tqdm
 from torch.utils.data import Dataset
-from data.preparation import center_crop_pad
-from params import PATIENT_TARGETS, IMAGE_TARGETS, SEG_TARGETS, IMG_TARGETS_EXTENDED
+from data.preparation import center_crop_pad, get_df_series
+from params import PATIENT_TARGETS, IMAGE_TARGETS, SEG_TARGETS, IMG_TARGETS_EXTENDED, CROP_TARGETS
 
 
 def to_one_hot_patient(y):
@@ -36,8 +37,8 @@ def get_frames(frame, n_frames, frames_c, stride=1, max_frame=100):
         offset = np.tile(np.arange(-1, 2) * frames_c, len(frames))
         frames = np.repeat(frames, 3) + offset
 
-    if frames.min() <= 0:  # BUG ??
-        frames -= frames.min() - 1
+    if frames.min() < 0:  # BUG ??
+        frames -= frames.min() # - 1
     elif frames.max() > max_frame:
         frames += max_frame - frames.max()
 
@@ -80,6 +81,14 @@ class AbdominalDataset(Dataset):
         
         self.use_mask = use_mask
         self.mask_folder = "../logs/2023-09-24/20/masks/"
+        
+        self.sigmas = {
+            "kidney_injury": 0.15,
+            "spleen_injury": 0.2,
+            "liver_injury": 0.3,
+            "bowel_injury": 0.4,
+            "extravasation_injury": 0.1,
+        }
 
     def __len__(self):
         """
@@ -102,19 +111,14 @@ class AbdominalDataset(Dataset):
             torch.Tensor: Label as a tensor of shape [5].
             torch.Tensor: Aux label as a tensor of shape [5].
         """
-#         t0a = time.time()
         tgt_idx = idx % 5
         tgt = IMG_TARGETS_EXTENDED[tgt_idx]
-#         print(tgt)
 
         idx = idx // 5
         patient = self.df_patient['patient_id'].values[idx]
         y_patient = self.targets[idx]
 
         df_img = self.df_img[self.df_img['patient_id'] == patient]
-        
-#         display(df_img.tail())
-#         display(df_img.head())
 
         # Restrict to considered class
         if (df_img[IMG_TARGETS_EXTENDED[tgt_idx]] == y_patient[tgt_idx]).max():  
@@ -141,9 +145,9 @@ class AbdominalDataset(Dataset):
         
         # Pick a row
         if self.train:
-            ps = np.exp(-((np.arange(len(df_img)) - len(df_img) // 2) / (0.4 * len(df_img))) ** 2)  # gaussian
-            ps[:self.stride + self.frames_chanel] = 0  # Stay in bounds
-            ps[-self.stride + self.frames_chanel:] = 0  # Stay in bounds
+            ps = np.exp(-((np.arange(len(df_img)) - len(df_img) // 2) / (self.sigmas[tgt] * len(df_img))) ** 2)  # gaussian
+            ps[:self.stride * (self.n_frames - 1) + self.frames_chanel] = 0  # Stay in bounds
+            ps[-(self.stride * (self.n_frames - 1) + self.frames_chanel):] = 0  # Stay in bounds
             if ps.max():
                 row_idx = np.random.choice(len(df_img), p=ps / ps.sum())
             else:
@@ -152,6 +156,7 @@ class AbdominalDataset(Dataset):
             try:
                 row = df_img.iloc[row_idx]
             except:
+                # TODO : decrease sigma ?
                 ps = np.exp(-((np.arange(len(df_img)) - len(df_img) // 2) / (0.4 * len(df_img))) ** 2)
                 row_idx = np.random.choice(len(df_img), p=ps / ps.sum())
 #                 row_idx = np.random.choice(len(df_img))
@@ -159,33 +164,44 @@ class AbdominalDataset(Dataset):
                 
         else:
             row = df_img.iloc[len(df_img) // 2]  # center
-            
-#         t0 = time.time()
         
         if self.frames_chanel > 0 or self.n_frames > 1:
             frame = row.frame
-            frames = get_frames(
-                frame, self.n_frames, self.frames_chanel, stride=self.stride, max_frame=self.max_frames[series]
-            )
-#             print(frames)
-
             frame = np.clip(frame, self.frames_chanel, self.max_frames[series] - self.frames_chanel)
-            paths = [row.path.rsplit('_', 1)[0] + f'_{f:04d}.png' for f in frames]
-            image = np.array([cv2.imread(path, 0) for path in paths]).transpose(1, 2, 0)
+            
+            image = None
+            try:
+                if self.frames_chanel == 1:
+                    frames = get_frames(
+                        frame, self.n_frames, 0, stride=self.stride, max_frame=self.max_frames[series]
+                    )
+                    prefix = re.sub("imgs", "imgs_adj_crop", row.path.rsplit('_', 1)[0])
+                    paths = [prefix + f'_{f:04d}.png' for f in frames]
+
+                    image = np.concatenate([cv2.imread(path) for path in paths], -1)
+            except:
+                pass
+
+            if image is None:
+                frames = get_frames(
+                    frame, self.n_frames, self.frames_chanel, stride=self.stride, max_frame=self.max_frames[series]
+                )
+                prefix = row.path.rsplit('_', 1)[0]
+                paths = [prefix + f'_{f:04d}.png' for f in frames]
+                image = np.array([cv2.imread(path, 0) for path in paths]).transpose(1, 2, 0)  ## [64:-64, 64:-64, :]
+
         else:
             frame = row.frame
             image = cv2.imread(row.path)
 
         image = image.astype(np.float32) / 255.0
-        
-#         t1 = time.time()
+
         if self.use_mask:
             if os.path.exists(self.mask_folder + f'mask_{patient}_{series}_{frame:04d}.png'):
                 mask = cv2.imread(self.mask_folder + f'mask_{patient}_{series}_{frame:04d}.png', 0)
             else:
                 mask = np.zeros((384, 384), dtype=np.uint8)
             image = center_crop_pad(image.transpose(2, 0, 1), mask.shape[0]).transpose(1, 2, 0)
-#         t2 = time.time()
         
         if self.transforms:
             if self.use_mask:
@@ -195,7 +211,6 @@ class AbdominalDataset(Dataset):
             else:
                 transformed = self.transforms(image=image)
                 image = transformed["image"]
-#         t3 = time.time()
 
         y_patient = torch.tensor(y_patient, dtype=torch.float)
         y_img = torch.tensor(row[IMG_TARGETS_EXTENDED], dtype=torch.float)
@@ -228,16 +243,139 @@ class AbdominalDataset(Dataset):
                 image = image.view(
                     1, self.n_frames, image.size(1), image.size(2)
                 ).repeat(3, 1, 1, 1).transpose(0, 1)
-            
-            
-#         t4 = time.time()        
-#         print(f'init {t0 - t0a :.3f}')
-#         print(f'load img {t1 - t0 :.3f}')
-#         print(f'load mask {t2 - t1 :.3f}')
-#         print(f'aug {t3 - t2 :.3f}')
-#         print(f'tgt {t4 - t3 :.3f}')
 
         return image, y_img, y_patient
+
+
+class AbdominalCropDataset(Dataset):
+    def __init__(
+        self,
+        df_patient,
+        df_img,
+        transforms=None,
+        frames_chanel=0,
+        n_frames=0,
+        stride=1,
+        train=False,
+        use_soft_target=False,
+        use_mask=False,
+    ):
+        """
+        Constructor.
+
+        Args:
+            df_patient (pandas DataFrame): Metadata containing information about the dataset.
+            df_img (pandas DataFrame): Metadata containing information about the dataset.
+            transforms (albu transforms, optional): Transforms to apply to images and masks. Defaults to None.
+        """
+        self.df_img = df_img
+        self.df_patient = df_patient
+        self.df_series = get_df_series(df_patient, df_img)
+        self.targets = self.df_series["target"].values
+
+        self.transforms = transforms
+        self.frames_chanel = frames_chanel
+        self.n_frames = n_frames
+        self.stride = stride
+
+        self.train = train
+        self.use_mask = use_mask
+        
+        self.sigmas = {"kidney": 0.15, "spleen": 0.2, "liver": 0.3}
+
+    def __len__(self):
+        """
+        Get the length of the dataset.
+
+        Returns:
+            int: Length of the dataset.
+        """
+        return len(self.df_series)
+    
+    def __getitem__(self, idx):
+        """
+        Item accessor.
+
+        Args:
+            idx (int): Index.
+
+        Returns:
+            torch.Tensor: Image as a tensor of shape [C, H, W].
+            torch.Tensor: Label as a tensor of shape [5].
+            torch.Tensor: Aux label as a tensor of shape [5].
+        """
+        img = np.load(self.df_series['img_path'].values[idx])
+        
+        if self.use_mask:
+            mask = np.load(self.df_series['mask_path'].values[idx])
+            assert mask.shape == img.shape
+            
+        organ = self.df_series['organ'].values[idx]
+        if organ == "kidney":
+            d = int(img.shape[1] * 3 / 4)
+            img = np.concatenate([img[:, :, :d], img[:, :, -d:]], -1)
+            if self.use_mask:
+                mask = np.concatenate([mask[:, :, :d], mask[:, :, -d:]], -1)
+        
+        # Pick frame(s)
+        if self.train:
+            ps = np.exp(-((np.arange(len(img)) - len(img) // 2) / (self.sigmas[organ] * len(img))) ** 2)  # gaussian
+            m = 5 + self.stride * (self.n_frames - 1) + self.frames_chanel
+            ps[:m] = 0  # Stay in bounds
+            ps[-m:] = 0  # Stay in bounds
+            if ps.max():
+                frame = np.random.choice(len(img), p=ps / ps.sum())
+            else:
+                frame = len(img) // 2 + np.random.choice([-2, -1, 0, 1, 2])
+        else:
+            frame = len(img) // 2  # center
+
+        frames = get_frames(
+            frame, self.n_frames, self.frames_chanel, stride=self.stride, max_frame=len(img) - 1
+        )
+#         print(frames)
+        
+        # Load
+        image = img[np.array(frames)].transpose(1, 2, 0)
+        image = image.astype(np.float32) / 255.0
+        if self.use_mask:
+            mask = mask[np.array(frames)].transpose(1, 2, 0)
+        
+        # Augment
+        if self.transforms:
+            if self.use_mask:
+                transformed = self.transforms(image=image, mask=mask)
+                image = transformed["image"]
+                mask = transformed["mask"]
+            else:
+                transformed = self.transforms(image=image)
+                image = transformed["image"]
+    
+        y_img = torch.zeros(3, dtype=torch.float)
+        y_img[self.targets[idx]] = 1
+
+        # Reshape
+        if self.n_frames > 1:
+            if self.frames_chanel:
+                image = image.view(
+                    self.n_frames, 3, image.size(1), image.size(2)
+                )  # .transpose(0, 1)
+                if self.use_mask:
+                    mask = mask.view(
+                        self.n_frames, 3, image.size(1), image.size(2)
+                    )[:, 1]
+                    image = torch.cat([image, mask], 1)
+            else:
+                image = image.view(
+                    1, self.n_frames, image.size(1), image.size(2)
+                ).repeat(3 if self.use_mask else 2, 1, 1, 1).transpose(0, 1)
+                if self.use_mask:
+                    mask = mask.view(
+                        1, self.n_frames, image.size(1), image.size(2)
+                    ).transpose(0, 1)
+                    image = torch.cat([image, mask], 1)
+
+        return image, y_img, 0
 
 
 class AbdominalInfDataset(Dataset):
@@ -251,6 +389,7 @@ class AbdominalInfDataset(Dataset):
         use_mask=False,
         imgs={},
         features=[],
+        single_frame=False,
     ):
         """
         Constructor.
@@ -267,6 +406,7 @@ class AbdominalInfDataset(Dataset):
         self.frames_chanel = frames_chanel
         self.n_frames = n_frames
         self.stride = stride
+        self.single_frame = single_frame
 
         self.max_frames = dict(df[["series", "frame"]].groupby("series").max()['frame'])
 
@@ -332,10 +472,15 @@ class AbdominalInfDataset(Dataset):
 
         path, patient, series, frame = self.info[idx]
 
-        frames = get_frames(
-            frame, 1, self.frames_chanel, stride=1, max_frame=self.max_frames[series]
-        )
-
+        if self.single_frame:
+            frames = get_frames(
+                frame, 1, self.frames_chanel, stride=1, max_frame=self.max_frames[series]
+            )
+        else:
+            frames = get_frames(
+                frame, self.n_frames, self.frames_chanel, stride=self.stride, max_frame=self.max_frames[series]
+            )
+            
         paths = [path.rsplit('_', 1)[0] + f'_{f:04d}.png' for f in frames]
 
         image = []
@@ -344,22 +489,31 @@ class AbdominalInfDataset(Dataset):
                 img = self.imgs[path]
             except:
                 img = cv2.imread(path, 0)
-
                 if not (idx + 1 % 10000):  # clear buffer
                     self.imgs = {}
                 self.imgs[path] = img
-
             image.append(img)
-        image = np.array(image).transpose(1, 2, 0)
 
+        image = np.array(image).transpose(1, 2, 0)
         image = image.astype(np.float32) / 255.
 
         if self.transforms:
             transformed = self.transforms(image=image)
             image = transformed["image"]
 
-        if image.size(0) == 1:
-            image = image.repeat(3, 1, 1)
+#         if image.size(0) == 1:
+#             image = image.repeat(3, 1, 1)
+        
+        if not self.single_frame:
+            if self.n_frames > 1:
+                if self.frames_chanel:
+                    image = image.view(
+                        self.n_frames, 3, image.size(1), image.size(2)
+                    )  # .transpose(0, 1)
+                else:
+                    image = image.view(
+                        1, self.n_frames, image.size(1), image.size(2)
+                    ).repeat(3, 1, 1, 1).transpose(0, 1)
 
         return image, 0, 0
 
@@ -674,15 +828,15 @@ class Seg3dDataset(Dataset):
 class PatientFeatureDataset(Dataset):
     def __init__(self, df_patient, df_img, exp_folders, max_len=None, restrict=False, resize=None):
         self.df_patient = df_patient
-        self.fts = self.retrieve_features(df_img, exp_folders)
+        self.fts, self.crop_fts = self.retrieve_features(df_img, exp_folders)
         self.ids = list(self.fts.keys())
         self.max_len = max_len
         self.restrict = restrict
         self.resize = resize
 
-    @staticmethod
-    def retrieve_features(df, exp_folders):
+    def retrieve_features(self, df, exp_folders):
         features_dict = {}
+        crop_features_dict = {}
         for fold in sorted(df['fold'].unique()):
             df_val = df[df['fold'] == fold].reset_index(drop=True)
             
@@ -694,12 +848,15 @@ class PatientFeatureDataset(Dataset):
                     fts.append(seg)
                 elif mode == "seg3d":
                     pass
+                elif mode == "crop":
+                    pass
                 elif mode == "yolox":
                     file = sorted(glob.glob(exp_folder + ".npy"))[fold]
                     conf = np.load(file)
                     fts.append(conf[:, None])
                 else:  # proba
                     ft = np.load(exp_folder + f"pred_val_{fold}.npy")
+                    ft = ft[:len(df_val)]
                     fts.append(ft)
 
                     kidney = seg[:, 2: 4].max(-1, keepdims=True) if seg.shape[-1] == 5 else seg[:, 2: 3]
@@ -757,36 +914,66 @@ class PatientFeatureDataset(Dataset):
                     features_dict[k] = fts[start: end]
                 else:
                     features_dict[k] = fts[start: end][::-1]
-                  
-        for exp_folder, mode in exp_folders:
-            if mode == "seg3d":
-                for k in features_dict.keys():
-                    seg3d = np.load(exp_folder + f"masks/mask_counts_{k[0]}_{k[1]}.npy").T
-                    seg3d = seg3d / (seg3d.max(0, keepdims=True) + 1)
-                    seg3d = np.where(seg3d > 0.2, 1, seg3d * 5)
                     
-                    seg3d_pad = np.zeros((len(features_dict[k]), seg3d.shape[-1]))
-                    seg3d_pad[-len(seg3d):] = seg3d
+            crop_fts = []
+            for exp_folder, mode in exp_folders:
+                if mode == "crop":
+                    if not len(df_val):
+                        continue
+                
+                    preds = np.load(exp_folder + f'pred_val_{fold}.npy')
+                    df_series = get_df_series(
+                        self.df_patient[self.df_patient['fold'] == fold], df_val,
+                    )
+
+                    for i, c in enumerate(['pred_healthy', 'pred_low', 'pred_high']):
+                        df_series[c] = preds[:, i]
+                    df_series = df_series.groupby(["patient_id", "series"]).agg(list).reset_index()
+
+                    i = 2
+                    crop_scores = np.array([
+                        np.array(df_series[p].values.tolist()) for p in ['pred_healthy', 'pred_low', 'pred_high']
+                    ]).transpose(1, 2, 0)
+                    crop_fts.append(crop_scores)
+
+            if len(crop_fts):
+                crop_scores = np.concatenate(crop_fts, -1)
+                for i, (p, s) in enumerate(df_series[['patient_id', 'series']].values):
+                    try:
+                        _ = features_dict[(p, s)]
+                        crop_features_dict[(p, s)] = crop_scores[i]  # cls x score
+                    except KeyError:
+                        print(p, s)
+
+#         for exp_folder, mode in exp_folders:
+#             if mode == "seg3d":
+#                 for k in features_dict.keys():
+#                     seg3d = np.load(exp_folder + f"masks/mask_counts_{k[0]}_{k[1]}.npy").T
+#                     seg3d = seg3d / (seg3d.max(0, keepdims=True) + 1)
+#                     seg3d = np.where(seg3d > 0.2, 1, seg3d * 5)
                     
-                    features_dict[k][:, 0] += seg3d_pad[:, 0]
-                    features_dict[k][:, 1] += seg3d_pad[:, 1]
-                    features_dict[k][:, 2] += seg3d_pad[:, 2]
-                    features_dict[k][:, 3] += seg3d_pad[:, 2]
-                    features_dict[k][:, 4] += seg3d_pad[:, 3]
-                    features_dict[k][:, :5] /= 2
+#                     seg3d_pad = np.zeros((len(features_dict[k]), seg3d.shape[-1]))
+#                     seg3d_pad[-len(seg3d):] = seg3d
                     
-                    ft = features_dict[k][:, 5: 16]
-                    seg = features_dict[k][:, :5]
-                    features_dict[k][:, -11:] = np.concatenate([
-                        ft[:, :1] * seg[:, -1:],  # bowel
-                        ft[:, 1:2] * seg.max(-1, keepdims=True),  # extravasation
-                        ft[:, 2: 5] * seg[:, 2: 4].max(-1, keepdims=True),  # kidney
-                        ft[:, 5: 8] * seg[:, :1],  # liver
-                        ft[:, 8:] * seg[:, 1:2],  # spleen
-                    ], -1)
+#                     features_dict[k][:, 0] += seg3d_pad[:, 0]
+#                     features_dict[k][:, 1] += seg3d_pad[:, 1]
+#                     features_dict[k][:, 2] += seg3d_pad[:, 2]
+#                     features_dict[k][:, 3] += seg3d_pad[:, 2]
+#                     features_dict[k][:, 4] += seg3d_pad[:, 3]
+#                     features_dict[k][:, :5] /= 2
+                    
+#                     ft = features_dict[k][:, 5: 16]
+#                     seg = features_dict[k][:, :5]
+#                     features_dict[k][:, -11:] = np.concatenate([
+#                         ft[:, :1] * seg[:, -1:],  # bowel
+#                         ft[:, 1:2] * seg.max(-1, keepdims=True),  # extravasation
+#                         ft[:, 2: 5] * seg[:, 2: 4].max(-1, keepdims=True),  # kidney
+#                         ft[:, 5: 8] * seg[:, :1],  # liver
+#                         ft[:, 8:] * seg[:, 1:2],  # spleen
+#                     ], -1)
 #                     features_dict[k] = np.concatenate([features_dict[k], seg3d_pad], 1)
                     
-        return features_dict
+        return features_dict, crop_features_dict
 
     def pad(self, x):
         length = x.shape[0]
@@ -822,6 +1009,8 @@ class PatientFeatureDataset(Dataset):
         patient_study = self.ids[idx]
 
         fts = self.fts[patient_study]
+        
+        crop_fts = self.crop_fts.get(patient_study, None)
         
 #         if len(fts) > 100:
 #             fts = fts[len(fts) // 10:]
@@ -864,8 +1053,13 @@ class PatientFeatureDataset(Dataset):
                 fts = self.pad(fts)
                 
             fts = torch.from_numpy(fts).float()
+            
+        if crop_fts is not None:
+            crop_fts = torch.from_numpy(crop_fts).float()
+        else:
+            crop_fts = 0
         
         y = self.df_patient[self.df_patient['patient_id'] == patient_study[0]][PATIENT_TARGETS].values[0]
         y = torch.from_numpy(y).float()  # bowel, extravasion, kidney, liver, spleen
 
-        return fts, y, 0
+        return {"x": fts, "ft": crop_fts}, y, 0

@@ -82,11 +82,11 @@ class Config:
     # Data
     resize = (384, 384)
     frames_chanel = 1
-    n_frames = 3
-    stride = 3
+    n_frames = 5
+    stride = 5
 
     aug_strength = 5
-    crop = True
+    crop = False
     use_soft_target = False
     use_mask = False
 
@@ -99,7 +99,7 @@ class Config:
     name = "convnextv2_tiny"  # tf_efficientnetv2_s convnextv2_tiny efficientnetv2_rw_t tf_efficientnet_b5_ns
     pretrained_weights = None # PRETRAINED_WEIGHTS[name]  # None
 
-    num_classes = 11
+    num_classes = 3
     num_classes_aux = 0
     drop_rate = 0.05 if "convnext" in name else 0.1
     drop_path_rate = 0.05 if "convnext" in name else 0.1
@@ -111,11 +111,11 @@ class Config:
 
     # Training
     loss_config = {
-        "name": "patient",
+        "name": "ce",
         "weighted": False,
         "use_any": False,
         "smoothing": 0.,
-        "activation": "patient",
+        "activation": "softmax",
         "aux_loss_weight": 0.,  # Not ok with cutmix!
         "name_aux": "patient",
         "smoothing_aux": 0.,
@@ -233,23 +233,23 @@ if __name__ == "__main__":
         )
         print("\n -> Training\n")
 
-    from training.main import k_fold
+    from training.main_crop import k_fold
     k_fold(config, df_patient, df_img, log_folder=log_folder, run=run)
 
-    if len(config.selected_folds) == 4:
-        if config.local_rank == 0:
-            print("\n -> Extracting features\n")
+#     if len(config.selected_folds) == 4:
+#         if config.local_rank == 0:
+#             print("\n -> Extracting features\n")
 
-        if config.head_3d == "cnn":
-            from inference.extract_features_3d_cnn import kfold_inference
-        elif config.head_3d:
-            from inference.extract_features_3d import kfold_inference
-        else:
-            from inference.extract_features import kfold_inference
+#         if config.head_3d == "cnn":
+#             from inference.extract_features_3d_cnn import kfold_inference
+#         elif config.head_3d:
+#             from inference.extract_features_3d import kfold_inference
+#         else:
+#             from inference.extract_features import kfold_inference
     
-        kfold_inference(
-            df_patient, df_img, log_folder, use_fp16=config.use_fp16, save=True, distributed=True, config=config
-        )
+#         kfold_inference(
+#             df_patient, df_img, log_folder, use_fp16=config.use_fp16, save=True, distributed=True, config=config
+#         )
 
     if config.local_rank == 0:
         print("\nDone !")

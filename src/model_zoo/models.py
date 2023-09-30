@@ -268,6 +268,7 @@ class ClsModel(nn.Module):
                     fts = fts.mean(-1)
                     
             fts = self.dropout(fts)
+
         return fts
 
     def get_logits(self, fts):
@@ -337,6 +338,7 @@ class ClsModel(nn.Module):
             fts = self.forward_head_3d(fts)
 
         logits, logits_aux = self.get_logits(fts)
+        
         return logits
     
     def set_mode(self, mode):

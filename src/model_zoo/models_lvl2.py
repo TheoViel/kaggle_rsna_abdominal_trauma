@@ -61,103 +61,6 @@ def define_model(name="rnn", ft_dim=2048, layer_dim=64, n_layers=1, dense_dim=25
         raise NotImplementedError
 
 
-class RNNModel(nn.Module):
-    def __init__(
-        self,
-        ft_dim=64,
-        lstm_dim=64,
-        n_lstm=1,
-        dense_dim=64,
-        p=0.1,
-        use_msd=False,
-        num_classes=8,
-        num_classes_aux=0,
-        n_fts=0,
-    ):
-        super().__init__()
-        self.n_fts = n_fts
-        self.n_lstm = n_lstm
-        self.use_msd = use_msd
-        self.num_classes = num_classes
-        self.num_classes_aux = num_classes_aux
-
-        self.mlp = nn.Sequential(
-            nn.Linear(ft_dim, dense_dim),
-            nn.Dropout(p=p),
-            nn.Mish(),
-        )
-
-        self.lstm = nn.LSTM(dense_dim, lstm_dim, batch_first=True, bidirectional=True)
-        
-        if self.n_lstm >= 2:
-            self.lstm_2 = nn.LSTM(lstm_dim * 2, lstm_dim, batch_first=True, bidirectional=True)
-        if self.n_lstm >= 3:
-            self.lstm_3 = nn.LSTM(lstm_dim * 2, lstm_dim, batch_first=True, bidirectional=True)
-        if self.n_lstm >= 4:
-            raise NotImplementedError
-    
-        self.logits = nn.Sequential(
-            nn.Dropout(p=p),
-            nn.Linear(lstm_dim * 4 + dense_dim * 2 + n_fts, dense_dim),
-            nn.Mish(),
-            nn.Linear(dense_dim, num_classes),
-        )
-
-        if num_classes_aux:
-            self.logits_aux = nn.Sequential(
-                nn.Dropout(p=p),
-                nn.Linear(lstm_dim * 4 + dense_dim * 2 + n_fts, dense_dim),
-                nn.Mish(),
-                nn.Linear(dense_dim, num_classes_aux),
-            )
-
-        self.high_dropout = nn.Dropout(p=0.5)
-
-    def forward(self, x, fts=None):
-        features = self.mlp(x)
-        features_lstm, _ = self.lstm(features)
-        
-        if self.n_lstm >= 2:
-            features_lstm, _ = self.lstm_2(features_lstm)
-        if self.n_lstm >= 3:
-            features_lstm, _ = self.lstm_3(features_lstm)
-        if self.n_lstm >= 4:
-            raise NotImplementedError
-
-        features = torch.cat([features, features_lstm], -1)
-
-        mean = features.mean(1)
-        max_, _ = features.max(1)
-        pooled = torch.cat([mean, max_], -1)
-
-        if fts is not None and self.n_fts:
-            pooled = torch.cat([pooled, fts], -1)
-
-        logits_aux = torch.zeros((x.size(0)))
-        if self.use_msd and self.training:
-            logits = torch.mean(
-                torch.stack(
-                    [self.logits(self.high_dropout(pooled)) for _ in range(5)],
-                    dim=0,
-                ),
-                dim=0,
-            )
-            if self.num_classes_aux:
-                logits_aux = torch.mean(
-                    torch.stack(
-                        [self.logits_aux(self.high_dropout(features)) for _ in range(5)],
-                        dim=0,
-                    ),
-                    dim=0,
-                )
-        else:
-            logits = self.logits(pooled)
-            if self.num_classes_aux:
-                logits_aux = self.logits_aux(features)
-
-        return logits, logits_aux
-
-
 class RNNAttModel(nn.Module):
     def __init__(
         self,
@@ -183,38 +86,57 @@ class RNNAttModel(nn.Module):
 #             nn.Dropout(p=p),
             nn.Mish(),
         )
+        
+        if n_fts > 0:
+#             self.mlp_fts = nn.Sequential(
+#                 nn.Linear(n_fts, dense_dim // 2),
+#                 nn.Dropout(p=0.1),
+#                 nn.Mish(),
+#                 nn.Linear(dense_dim // 2, dense_dim),
+#                 nn.Mish(),
+#             )
+            self.mlp_fts = nn.Sequential(
+                nn.Linear(n_fts, dense_dim),
+                nn.Dropout(p=0.1),
+                nn.Mish(),
+            )
 
         self.lstm = nn.LSTM(dense_dim, lstm_dim, batch_first=True, bidirectional=True)
-    
-        n_fts = 4
+        
+        self.dense_fts = nn.Sequential(
+            nn.Linear(9, dense_dim),
+            nn.ReLU(),
+        )
+        
+        n_fts = n_fts // 3 + dense_dim # // 2
+
         self.logits_bowel = nn.Sequential(
             nn.Dropout(p=p),
-            nn.Linear(2 * (lstm_dim * 2 + dense_dim) + n_fts, dense_dim),
+            nn.Linear(2 * (lstm_dim * 2 + dense_dim) + 4, dense_dim),
             nn.Mish(),
             nn.Linear(dense_dim, 1),
         )
         self.logits_extrav = nn.Sequential(
             nn.Dropout(p=p),
-            nn.Linear(2 * (lstm_dim * 2 + dense_dim) + n_fts, dense_dim),
+            nn.Linear(2 * (lstm_dim * 2 + dense_dim) + 4, dense_dim),
             nn.Mish(),
             nn.Linear(dense_dim, 1),
         )
-        n_fts = 8
         self.logits_spleen = nn.Sequential(
             nn.Dropout(p=p),
-            nn.Linear(2 * (lstm_dim * 2 + dense_dim) + n_fts, dense_dim),
+            nn.Linear(2 * (lstm_dim * 2 + dense_dim) + 8 + n_fts, dense_dim),
             nn.Mish(),
             nn.Linear(dense_dim, 3),
         )
         self.logits_liver = nn.Sequential(
             nn.Dropout(p=p),
-            nn.Linear(2 * (lstm_dim * 2 + dense_dim) + n_fts, dense_dim),
+            nn.Linear(2 * (lstm_dim * 2 + dense_dim) + 8 + n_fts, dense_dim),
             nn.Mish(),
             nn.Linear(dense_dim, 3),
         )
         self.logits_kidney = nn.Sequential(
             nn.Dropout(p=p),
-            nn.Linear(2 * (lstm_dim * 2 + dense_dim) + n_fts, dense_dim),
+            nn.Linear(2 * (lstm_dim * 2 + dense_dim) + 8 + n_fts, dense_dim),
             nn.Mish(),
             nn.Linear(dense_dim, 3),
         )
@@ -225,7 +147,7 @@ class RNNAttModel(nn.Module):
     def attention_pooling(self, x, w):
         return (x * w).sum(1) / (w.sum(1) + 1e-6), (x * w).amax(1)
 
-    def forward(self, x, fts=None):
+    def forward(self, x, ft=None):
         features = self.mlp(x)
         features_lstm, _ = self.lstm(features)
 
@@ -242,23 +164,13 @@ class RNNAttModel(nn.Module):
 
         scores = x[:, :, 5:].view(x.size(0), x.size(1), -1, 11 * 2)
         pooled_scores = scores.mean(2).view(x.size(0), x.size(1), 2, 11)
-
         pooled_scores = torch.cat([pooled_scores.amax(1), pooled_scores.mean(1)], 1)
-#         pooled_scores = pooled_scores.amax(1)
-#         print(pooled_scores.size())
 
         pooled_scores_bowel = pooled_scores[:, :, :1].flatten(1, 2)
         pooled_scores_extrav = pooled_scores[:, :, 1: 2].flatten(1, 2)
         pooled_scores_kidney = pooled_scores[:, :, 3: 5].flatten(1, 2)
         pooled_scores_liver = pooled_scores[:, :, 6: 8].flatten(1, 2)
         pooled_scores_spleen = pooled_scores[:, :, 9: 11].flatten(1, 2)
-
-#         print(pooled_scores_bowel.size())
-#         print(pooled_scores_extrav)
-#         print(pooled_scores_kidney)
-#         print(pooled_scores_liver)
-#         print(pooled_scores_spleen)
-#         print(pooled_scores_bowel)
         
         att_bowel, max_bowel = self.attention_pooling(features, bowel)
         att_kidney, max_kidney = self.attention_pooling(features, kidney)
@@ -267,12 +179,29 @@ class RNNAttModel(nn.Module):
 
         mean = features.mean(1)
         max_ = features.amax(1)
+        
+        if ft is None or self.n_fts == 0:
+            ft_kidney = torch.empty((x.size(0), 0))
+            ft_liver = torch.empty((x.size(0), 0))
+            ft_spleen = torch.empty((x.size(0), 0))
+        else:
+            fts = self.mlp_fts(ft.flatten(1, 2))
+            ft_kidney = torch.cat([fts, ft[:, 0]], -1)
+            ft_liver = torch.cat([fts, ft[:, 1]], -1)
+            ft_spleen = torch.cat([fts, ft[:, 2]], -1)
+            
+#             print(ft_kidney.size())
+#             ft_kidney = ft[:, 0]
+#             ft_liver = ft[:, 1]
+#             ft_spleen = ft[:, 2]
+            
+#         print(att_spleen.size(), ft_spleen.size())
 
         logits_bowel = self.logits_bowel(torch.cat([att_bowel, max_bowel, pooled_scores_bowel], -1))
         logits_extrav = self.logits_extrav(torch.cat([mean, max_, pooled_scores_extrav], -1))
-        logits_kidney  = self.logits_kidney(torch.cat([att_kidney, max_kidney, pooled_scores_kidney], -1))
-        logits_liver = self.logits_liver(torch.cat([att_liver, max_liver, pooled_scores_liver], -1))
-        logits_spleen = self.logits_spleen(torch.cat([att_spleen, max_spleen, pooled_scores_spleen], -1))
+        logits_kidney  = self.logits_kidney(torch.cat([att_kidney, max_kidney, pooled_scores_kidney, ft_kidney], -1))
+        logits_liver = self.logits_liver(torch.cat([att_liver, max_liver, pooled_scores_liver, ft_liver], -1))
+        logits_spleen = self.logits_spleen(torch.cat([att_spleen, max_spleen, pooled_scores_spleen, ft_spleen], -1))
 
         logits = torch.cat(
             [logits_bowel, logits_extrav, logits_kidney, logits_liver, logits_spleen],
@@ -539,3 +468,101 @@ class CNNAttModel(nn.Module):
             -1
         )
         return logits, torch.zeros((x.size(0)))
+
+    
+class RNNModel(nn.Module):
+    def __init__(
+        self,
+        ft_dim=64,
+        lstm_dim=64,
+        n_lstm=1,
+        dense_dim=64,
+        p=0.1,
+        use_msd=False,
+        num_classes=8,
+        num_classes_aux=0,
+        n_fts=0,
+    ):
+        super().__init__()
+        self.n_fts = n_fts
+        self.n_lstm = n_lstm
+        self.use_msd = use_msd
+        self.num_classes = num_classes
+        self.num_classes_aux = num_classes_aux
+
+        self.mlp = nn.Sequential(
+            nn.Linear(ft_dim, dense_dim),
+            nn.Dropout(p=p),
+            nn.Mish(),
+        )
+
+        self.lstm = nn.LSTM(dense_dim, lstm_dim, batch_first=True, bidirectional=True)
+        
+        if self.n_lstm >= 2:
+            self.lstm_2 = nn.LSTM(lstm_dim * 2, lstm_dim, batch_first=True, bidirectional=True)
+        if self.n_lstm >= 3:
+            self.lstm_3 = nn.LSTM(lstm_dim * 2, lstm_dim, batch_first=True, bidirectional=True)
+        if self.n_lstm >= 4:
+            raise NotImplementedError
+    
+        self.logits = nn.Sequential(
+            nn.Dropout(p=p),
+            nn.Linear(lstm_dim * 4 + dense_dim * 2 + n_fts, dense_dim),
+            nn.Mish(),
+            nn.Linear(dense_dim, num_classes),
+        )
+
+        if num_classes_aux:
+            self.logits_aux = nn.Sequential(
+                nn.Dropout(p=p),
+                nn.Linear(lstm_dim * 4 + dense_dim * 2 + n_fts, dense_dim),
+                nn.Mish(),
+                nn.Linear(dense_dim, num_classes_aux),
+            )
+
+        self.high_dropout = nn.Dropout(p=0.5)
+
+    def forward(self, x, fts=None):
+        features = self.mlp(x)
+        features_lstm, _ = self.lstm(features)
+        
+        if self.n_lstm >= 2:
+            features_lstm, _ = self.lstm_2(features_lstm)
+        if self.n_lstm >= 3:
+            features_lstm, _ = self.lstm_3(features_lstm)
+        if self.n_lstm >= 4:
+            raise NotImplementedError
+
+        features = torch.cat([features, features_lstm], -1)
+
+        mean = features.mean(1)
+        max_, _ = features.max(1)
+        pooled = torch.cat([mean, max_], -1)
+
+        if fts is not None and self.n_fts:
+            pooled = torch.cat([pooled, fts], -1)
+
+        logits_aux = torch.zeros((x.size(0)))
+        if self.use_msd and self.training:
+            logits = torch.mean(
+                torch.stack(
+                    [self.logits(self.high_dropout(pooled)) for _ in range(5)],
+                    dim=0,
+                ),
+                dim=0,
+            )
+            if self.num_classes_aux:
+                logits_aux = torch.mean(
+                    torch.stack(
+                        [self.logits_aux(self.high_dropout(features)) for _ in range(5)],
+                        dim=0,
+                    ),
+                    dim=0,
+                )
+        else:
+            logits = self.logits(pooled)
+            if self.num_classes_aux:
+                logits_aux = self.logits_aux(features)
+
+        return logits, logits_aux
+    

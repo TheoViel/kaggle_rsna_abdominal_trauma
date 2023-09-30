@@ -34,12 +34,17 @@ def rsna_loss(preds, truths, eps=1e-6):
         preds = preds.cpu().numpy()
         
     preds = np.clip(preds, eps, 1 - eps)
+    preds = preds.copy()
 
     if isinstance(preds, np.ndarray):
         if preds.shape[-1] == 11:
             preds = [preds[:, 0], preds[:, 1], preds[:, 2: 5], preds[:, 5: 8], preds[:, 8:]]
         elif preds.shape[-1] == 2:
             preds = [preds[:, 0], preds[:, 1]]
+            
+    for i, pred in enumerate(preds):
+        if pred.shape[-1] in [2, 3]:
+            preds[i] = pred / pred.sum(1, keepdims=True)
 
     losses = {}
     for i, tgt in enumerate(WEIGHTS.keys()):
