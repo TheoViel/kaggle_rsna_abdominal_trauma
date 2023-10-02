@@ -90,52 +90,46 @@ class RNNAttModel(nn.Module):
         if n_fts > 0:
 #             self.mlp_fts = nn.Sequential(
 #                 nn.Linear(n_fts, dense_dim // 2),
-#                 nn.Dropout(p=0.1),
+#                 nn.Dropout(p=p),
 #                 nn.Mish(),
 #                 nn.Linear(dense_dim // 2, dense_dim),
 #                 nn.Mish(),
 #             )
             self.mlp_fts = nn.Sequential(
                 nn.Linear(n_fts, dense_dim),
-                nn.Dropout(p=0.1),
+                nn.Dropout(p=p),
                 nn.Mish(),
             )
+            n_fts = n_fts // 3 + dense_dim # // 2
 
         self.lstm = nn.LSTM(dense_dim, lstm_dim, batch_first=True, bidirectional=True)
         
-        self.dense_fts = nn.Sequential(
-            nn.Linear(9, dense_dim),
-            nn.ReLU(),
-        )
-        
-        n_fts = n_fts // 3 + dense_dim # // 2
-
         self.logits_bowel = nn.Sequential(
-            nn.Dropout(p=p),
+            nn.Dropout(p=0),
             nn.Linear(2 * (lstm_dim * 2 + dense_dim) + 4, dense_dim),
             nn.Mish(),
             nn.Linear(dense_dim, 1),
         )
         self.logits_extrav = nn.Sequential(
-            nn.Dropout(p=p),
+            nn.Dropout(p=0),
             nn.Linear(2 * (lstm_dim * 2 + dense_dim) + 4, dense_dim),
             nn.Mish(),
             nn.Linear(dense_dim, 1),
         )
         self.logits_spleen = nn.Sequential(
-            nn.Dropout(p=p),
+            nn.Dropout(p=0),
             nn.Linear(2 * (lstm_dim * 2 + dense_dim) + 8 + n_fts, dense_dim),
             nn.Mish(),
             nn.Linear(dense_dim, 3),
         )
         self.logits_liver = nn.Sequential(
-            nn.Dropout(p=p),
+            nn.Dropout(p=0),
             nn.Linear(2 * (lstm_dim * 2 + dense_dim) + 8 + n_fts, dense_dim),
             nn.Mish(),
             nn.Linear(dense_dim, 3),
         )
         self.logits_kidney = nn.Sequential(
-            nn.Dropout(p=p),
+            nn.Dropout(p=0),
             nn.Linear(2 * (lstm_dim * 2 + dense_dim) + 8 + n_fts, dense_dim),
             nn.Mish(),
             nn.Linear(dense_dim, 3),
@@ -157,11 +151,15 @@ class RNNAttModel(nn.Module):
         liver = x[:, :, :1]
         spleen = x[:, :, 1: 2]
         bowel = x[:, :, 4: 5]
-#         kidney = x[:, :, 2: 3]  # .amax(-1, keepdims=True)
-#         liver = x[:, :, :1]
-#         spleen = x[:, :, 1: 2]
-#         bowel = x[:, :, 3: 4]
+        
+        att_bowel, max_bowel = self.attention_pooling(features, bowel)
+        att_kidney, max_kidney = self.attention_pooling(features, kidney)
+        att_liver, max_liver = self.attention_pooling(features, liver)
+        att_spleen, max_spleen = self.attention_pooling(features, spleen)
 
+        mean = features.mean(1)
+        max_ = features.amax(1)
+        
         scores = x[:, :, 5:].view(x.size(0), x.size(1), -1, 11 * 2)
         pooled_scores = scores.mean(2).view(x.size(0), x.size(1), 2, 11)
         pooled_scores = torch.cat([pooled_scores.amax(1), pooled_scores.mean(1)], 1)
@@ -172,30 +170,15 @@ class RNNAttModel(nn.Module):
         pooled_scores_liver = pooled_scores[:, :, 6: 8].flatten(1, 2)
         pooled_scores_spleen = pooled_scores[:, :, 9: 11].flatten(1, 2)
         
-        att_bowel, max_bowel = self.attention_pooling(features, bowel)
-        att_kidney, max_kidney = self.attention_pooling(features, kidney)
-        att_liver, max_liver = self.attention_pooling(features, liver)
-        att_spleen, max_spleen = self.attention_pooling(features, spleen)
-
-        mean = features.mean(1)
-        max_ = features.amax(1)
-        
         if ft is None or self.n_fts == 0:
-            ft_kidney = torch.empty((x.size(0), 0))
-            ft_liver = torch.empty((x.size(0), 0))
-            ft_spleen = torch.empty((x.size(0), 0))
+            ft_kidney = torch.empty((x.size(0), 0)).to(x.device)
+            ft_liver = torch.empty((x.size(0), 0)).to(x.device)
+            ft_spleen = torch.empty((x.size(0), 0)).to(x.device)
         else:
             fts = self.mlp_fts(ft.flatten(1, 2))
             ft_kidney = torch.cat([fts, ft[:, 0]], -1)
             ft_liver = torch.cat([fts, ft[:, 1]], -1)
             ft_spleen = torch.cat([fts, ft[:, 2]], -1)
-            
-#             print(ft_kidney.size())
-#             ft_kidney = ft[:, 0]
-#             ft_liver = ft[:, 1]
-#             ft_spleen = ft[:, 2]
-            
-#         print(att_spleen.size(), ft_spleen.size())
 
         logits_bowel = self.logits_bowel(torch.cat([att_bowel, max_bowel, pooled_scores_bowel], -1))
         logits_extrav = self.logits_extrav(torch.cat([mean, max_, pooled_scores_extrav], -1))

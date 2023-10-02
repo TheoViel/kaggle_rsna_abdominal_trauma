@@ -17,9 +17,11 @@ if __name__ == "__main__":
     warnings.simplefilter("ignore", UserWarning)
 
 #     EXP_FOLDER = "../logs/2023-09-25/26/"
-    EXP_FOLDER = "../logs/2023-09-28/27/"
-    EXP_FOLDER = "../logs/2023-09-29/11/"
-
+#     EXP_FOLDER = "../logs/2023-09-28/27/"
+#     EXP_FOLDER = "../logs/2023-09-20/36_r/"
+#     EXP_FOLDER = "../logs/2023-09-27/20_r/"
+    EXP_FOLDER = "../logs/2023-09-26/39_r/"
+    
     config = Config(json.load(open(EXP_FOLDER + "config.json", "r")))
     init_distributed(config)
 

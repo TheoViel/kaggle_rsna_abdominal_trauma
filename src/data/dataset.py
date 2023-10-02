@@ -83,11 +83,11 @@ class AbdominalDataset(Dataset):
         self.mask_folder = "../logs/2023-09-24/20/masks/"
         
         self.sigmas = {
-            "kidney_injury": 0.15,
-            "spleen_injury": 0.2,
-            "liver_injury": 0.3,
+            "kidney_injury": 0.4,  # 0.15,
+            "spleen_injury": 0.4,  # 0.2,
+            "liver_injury": 0.4,  # 0.3,
             "bowel_injury": 0.4,
-            "extravasation_injury": 0.1,
+            "extravasation_injury": 0.4, # 0.1,
         }
 
     def __len__(self):

@@ -51,20 +51,20 @@ def define_model(
     Returns:
         torch model -- Pretrained model.
     """
-    if drop_path_rate > 0:
+    if drop_path_rate > 0 and "coat" not in name:
         encoder = timm.create_model(
             name,
             pretrained=pretrained,
             drop_path_rate=drop_path_rate,
             num_classes=0,
-            global_pool='',
+            global_pool='avg' if "coat" in name else "",
         )
     else:
         encoder = timm.create_model(
             name,
             pretrained=pretrained,
             num_classes=0,
-            global_pool='',
+            global_pool='avg' if "coat" in name else "",
         )
     encoder.name = name
 

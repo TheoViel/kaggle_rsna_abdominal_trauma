@@ -80,10 +80,10 @@ class Config:
     save_weights = True
 
     # Data
-    resize = (384, 384)
+    resize = (224, 224)
     frames_chanel = 1
-    n_frames = 5
-    stride = 5
+    n_frames = 7
+    stride = 3
 
     aug_strength = 5
     crop = False
@@ -96,17 +96,17 @@ class Config:
     selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "convnextv2_tiny"  # tf_efficientnetv2_s convnextv2_tiny efficientnetv2_rw_t tf_efficientnet_b5_ns
+    name = "coatnet_2_rw_224"  # tf_efficientnetv2_s convnextv2_tiny efficientnetv2_rw_t tf_efficientnet_b5_ns
     pretrained_weights = None # PRETRAINED_WEIGHTS[name]  # None
 
     num_classes = 3
     num_classes_aux = 0
-    drop_rate = 0.05 if "convnext" in name else 0.1
-    drop_path_rate = 0.05 if "convnext" in name else 0.1
+    drop_rate = 0.05 if "convnext" in name else 0.2
+    drop_path_rate = 0.05 if "convnext" in name else 0.
     n_channels = 4 if (use_mask and frames_chanel) else 3
     reduce_stride = False
     replace_pad_conv = False
-    use_gem = True
+    use_gem = "coat" not in name
     head_3d = "lstm" if n_frames > 1 else ""
 
     # Training
@@ -127,7 +127,7 @@ class Config:
         "batch_size": 8,
         "val_bs": 16,
         "mix": "cutmix",
-        "mix_proba": 0.5,
+        "mix_proba": 1. if "coat" in name else 0.5,
         "sched": False,
         "mix_alpha": 4,
         "additive_mix": False,
@@ -144,7 +144,7 @@ class Config:
         "weight_decay": 0.,
     }
 
-    epochs = 30
+    epochs = 20
 
     use_fp16 = True
     verbose = 1

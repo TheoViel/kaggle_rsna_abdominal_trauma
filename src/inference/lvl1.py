@@ -15,6 +15,8 @@ def get_frames(frame, n_frames, frames_c, stride=1, max_frame=100, min_frame=0):
 
     if frames.min() < 0:
         frames -= frames.min()
+#     if frames.min() < 1:
+#         frames -= frames.min() - 1
     elif frames.max() > max_frame:
         frames += max_frame - frames.max()
 
@@ -123,26 +125,19 @@ class AbdominalInfDataset(Dataset):
             max_frame=self.max_frames[series],
             min_frame=self.min_frames[series]
         )
-        
+#         if idx >= len(self.df) - 2:
+#             print(np.clip(frame, self.frames_chanel, self.max_frames[series] - self.frames_chanel))
+#             print(frames)
 #         print(frames)
 
         paths = [path.rsplit('_', 1)[0] + f'_{f:04d}.png' for f in frames]
 
         image = []
         for path, frame in zip(paths, frames):
-#             try:
             img = self.imgs[path]
-                
-#             except:
-#                 img = cv2.imread(path, 0)
-
-#                 if not (idx + 1 % 10000):  # clear buffer
-#                     self.imgs = {}
-#                 self.imgs[path] = img
-
             image.append(img)
-        image = np.array(image).transpose(1, 2, 0)
 
+        image = np.array(image).transpose(1, 2, 0)
 #         image = image.astype(np.float32) / 255.
 
         if self.transforms:
@@ -181,7 +176,7 @@ def predict(
         list: Empty list, placeholder for the auxiliary task.
     """
     model.eval()
-    preds, fts = [], []
+    preds = []
 
     loader = DataLoader(
         dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
@@ -194,8 +189,9 @@ def predict(
                 if img.size(1) == 1:
                     img = img.repeat(1, 3, 1, 1)
 
-                y_pred, ft = model(img, return_fts=True)
-            #                 y_pred, ft = torch.zeros(1), torch.zeros(1)
+                y_pred = model(img)
+                if isinstance(y_pred, tuple):
+                    y_pred = y_pred[0]
 
             # Get probabilities
             if loss_config["activation"] == "sigmoid":
@@ -209,6 +205,4 @@ def predict(
                 y_pred[:, 8:] = y_pred[:, 8:].softmax(-1)
 
             preds.append(y_pred.detach().cpu().numpy())
-            fts.append(ft.detach().cpu().numpy())
-
-    return np.concatenate(preds), np.concatenate(fts)
+    return np.concatenate(preds)
