@@ -26,6 +26,23 @@ def to_one_hot_patient(y):
     return torch.cat(new_y, -1)
 
 
+def get_frames(frame, n_frames, frames_c, stride=1, max_frame=100):
+    frames = np.arange(n_frames) * stride
+    frames = frames - frames[n_frames // 2] + frame
+    
+    if frames_c:
+        offset = np.tile(np.arange(-1, 2) * frames_c, len(frames))
+        frames = np.repeat(frames, 3) + offset
+
+    if frames.min() < 0:  # BUG ??
+        frames -= frames.min() # - 1
+    elif frames.max() > max_frame:
+        frames += max_frame - frames.max()
+
+    frames = np.clip(frames, 0, max_frame)
+    return frames
+
+
 class AbdominalDataset(Dataset):
     def __init__(
         self,
@@ -33,8 +50,12 @@ class AbdominalDataset(Dataset):
         df_img,
         transforms=None,
         frames_chanel=0,
+        n_frames=0,
+        stride=1,
         train=False,
         use_soft_target=False,
+        use_mask=False,
+        use_crops=False,
     ):
         """
         Constructor.
@@ -48,11 +69,26 @@ class AbdominalDataset(Dataset):
         self.df_patient = df_patient
         self.transforms = transforms
         self.frames_chanel = frames_chanel
+        self.n_frames = n_frames
+        self.stride = stride
         self.train = train
         self.use_soft_target = use_soft_target
     
         self.targets = df_patient[PATIENT_TARGETS].values
         self.max_frames = dict(df_img[["series", "frame"]].groupby("series").max()['frame'])
+        
+        self.use_mask = use_mask
+        self.mask_folder = "../logs/2023-09-24/20/masks/"
+        
+        self.sigmas = {
+            "kidney_injury": 0.4,  # 0.15,
+            "spleen_injury": 0.4,  # 0.2,
+            "liver_injury": 0.4,  # 0.3,
+            "bowel_injury": 0.4,
+            "extravasation_injury": 0.4, # 0.1,
+        }
+        
+        self.use_crops = use_crops
 
     def __len__(self):
         """
@@ -62,7 +98,7 @@ class AbdominalDataset(Dataset):
             int: Length of the dataset.
         """
         return len(self.df_patient) * 5
-            
+    
     def __getitem__(self, idx):
         """
         Item accessor.
@@ -77,9 +113,7 @@ class AbdominalDataset(Dataset):
         """
         tgt_idx = idx % 5
         tgt = IMG_TARGETS_EXTENDED[tgt_idx]
-        
-#         print(tgt)
-        
+
         idx = idx // 5
         patient = self.df_patient['patient_id'].values[idx]
         y_patient = self.targets[idx]
@@ -105,35 +139,82 @@ class AbdominalDataset(Dataset):
         # Sort by frame
         df_img = df_img.sort_values('frame').reset_index(drop=True)
         
+        if self.use_mask:
+            if any(df_img['frame'].values > (self.max_frames[series] - 600)):
+                df_img = df_img[df_img['frame'] > (self.max_frames[series] - 600)].reset_index(drop=True)
+        
         # Pick a row
         if self.train:
-#             display(df_img)
-            
-            ps = np.exp(-((np.arange(len(df_img)) - len(df_img) // 2) / (0.4 * len(df_img))) ** 2)  # gaussian
+            ps = np.exp(-((np.arange(len(df_img)) - len(df_img) // 2) / (self.sigmas[tgt] * len(df_img))) ** 2)  # gaussian
             row_idx = np.random.choice(len(df_img), p=ps / ps.sum())
-#             print(row_idx, len(df_img))
-#             row_idx = np.random.choice(len(df_img))
+            
+#             if self.frames > 1:
+#                 ps[:self.stride + self.frames_chanel] = 0  # Stay in bounds
+#                 ps[-self.stride + self.frames_chanel:] = 0  # Stay in bounds
+
+#                 if ps.max():
+#                     row_idx = np.random.choice(len(df_img), p=ps / ps.sum())
+#                 else:
+#                     row_idx = len(df_img) // 2 + np.random.choice([-2, -1, 0, 1, 2])
+
+#                 try:
+#                     row = df_img.iloc[row_idx]
+#                 except:
+#                     # TODO : decrease sigma ?
+#                     ps = np.exp(-((np.arange(len(df_img)) - len(df_img) // 2) / (0.4 * len(df_img))) ** 2)
+#                     row_idx = np.random.choice(len(df_img), p=ps / ps.sum())
+#     #                 row_idx = np.random.choice(len(df_img))
             row = df_img.iloc[row_idx]
+                
         else:
             row = df_img.iloc[len(df_img) // 2]  # center
         
-        if self.frames_chanel > 0:
+        if self.frames_chanel > 0 or self.n_frames > 1:
             frame = row.frame
-            frame = np.clip(frame, self.frames_chanel, self.max_frames[series] - self.frames_chanel)
-            paths = [row.path.rsplit('_', 1)[0] + f'_{f:04d}.png' for f in [frame - self.frames_chanel, frame, frame + self.frames_chanel]]
+            
+            if self.n_frames <= 1:
+                frame = np.clip(frame, self.frames_chanel, self.max_frames[series] - self.frames_chanel)
+                frames = [frame - self.frames_chanel, frame, frame + self.frames_chanel]
+            else:
+                frames = get_frames(
+                    frame, self.n_frames, self.frames_chanel, stride=self.stride, max_frame=self.max_frames[series]
+                )
+    
+            prefix = row.path.rsplit('_', 1)[0]
+            paths = [prefix + f'_{f:04d}.png' for f in frames]
             image = np.array([cv2.imread(path, 0) for path in paths]).transpose(1, 2, 0)
+
         else:
+            frame = row.frame
             image = cv2.imread(row.path)
+
         image = image.astype(np.float32) / 255.0
 
+        if self.use_crops:
+            x_start, x_end, y_start, y_end = row.x_start, row.x_end, row.y_start, row.y_end
+            image = image[x_start: x_end, y_start: y_end]
+
+#         print(image.shape)
+        
+        if self.use_mask:
+            raise NotImplementedError
+#             if os.path.exists(self.mask_folder + f'mask_{patient}_{series}_{frame:04d}.png'):
+#                 mask = cv2.imread(self.mask_folder + f'mask_{patient}_{series}_{frame:04d}.png', 0)
+#             else:
+#                 mask = np.zeros((384, 384), dtype=np.uint8)
+#             image = center_crop_pad(image.transpose(2, 0, 1), mask.shape[0]).transpose(1, 2, 0)
+        
         if self.transforms:
+#             if self.use_mask:
+#                 transformed = self.transforms(image=image, mask=mask)
+#                 image = transformed["image"]
+#                 mask = transformed["mask"]
+#             else:
             transformed = self.transforms(image=image)
             image = transformed["image"]
 
         y_patient = torch.tensor(y_patient, dtype=torch.float)
         y_img = torch.tensor(row[IMG_TARGETS_EXTENDED], dtype=torch.float)
-        
-#         print(row)
         
         if y_img.size(-1) == 5:  # Patient level - TODO : y_patient ?
             y_img = to_one_hot_patient(y_img.unsqueeze(0))[0]
@@ -146,11 +227,152 @@ class AbdominalDataset(Dataset):
                 y_img[5] = 1 - y_img[6] - y_img[7]
                 y_img[9:] *= row.pred_spleen
                 y_img[8] = 1 - y_img[9] - y_img[10]
+                
+#         if self.use_mask:
+#             if self.frames_chanel > 0:
+#                 image = torch.cat([image, mask.float().unsqueeze(0)], 0)
+#             else:
+#                 image[-1] = mask.float()
 
-        if image.size(0) > 3:
-            image = image.view(3, -1, image.size(1), image.size(2)).transpose(0, 1)
+#         print(image.size())
+        if self.n_frames > 1:
+            if self.frames_chanel:
+                image = image.view(
+                    self.n_frames, 3, image.size(1), image.size(2)
+                )  # .transpose(0, 1)
+            else:
+                image = image.view(
+                    1, self.n_frames, image.size(1), image.size(2)
+                ).repeat(3, 1, 1, 1).transpose(0, 1)
 
         return image, y_img, y_patient
+
+
+# class AbdominalDataset(Dataset):
+#     def __init__(
+#         self,
+#         df_patient,
+#         df_img,
+#         transforms=None,
+#         frames_chanel=0,
+#         train=False,
+#         use_soft_target=False,
+#     ):
+#         """
+#         Constructor.
+
+#         Args:
+#             df_patient (pandas DataFrame): Metadata containing information about the dataset.
+#             df_img (pandas DataFrame): Metadata containing information about the dataset.
+#             transforms (albu transforms, optional): Transforms to apply to images and masks. Defaults to None.
+#         """
+#         self.df_img = df_img
+#         self.df_patient = df_patient
+#         self.transforms = transforms
+#         self.frames_chanel = frames_chanel
+#         self.train = train
+#         self.use_soft_target = use_soft_target
+    
+#         self.targets = df_patient[PATIENT_TARGETS].values
+#         self.max_frames = dict(df_img[["series", "frame"]].groupby("series").max()['frame'])
+
+#     def __len__(self):
+#         """
+#         Get the length of the dataset.
+
+#         Returns:
+#             int: Length of the dataset.
+#         """
+#         return len(self.df_patient) * 5
+            
+#     def __getitem__(self, idx):
+#         """
+#         Item accessor.
+
+#         Args:
+#             idx (int): Index.
+
+#         Returns:
+#             torch.Tensor: Image as a tensor of shape [C, H, W].
+#             torch.Tensor: Label as a tensor of shape [5].
+#             torch.Tensor: Aux label as a tensor of shape [5].
+#         """
+#         tgt_idx = idx % 5
+#         tgt = IMG_TARGETS_EXTENDED[tgt_idx]
+        
+# #         print(tgt)
+        
+#         idx = idx // 5
+#         patient = self.df_patient['patient_id'].values[idx]
+#         y_patient = self.targets[idx]
+
+#         df_img = self.df_img[self.df_img['patient_id'] == patient]
+
+#         # Restrict to considered class
+#         if (df_img[IMG_TARGETS_EXTENDED[tgt_idx]] == y_patient[tgt_idx]).max():  
+#             df_img = df_img[df_img[IMG_TARGETS_EXTENDED[tgt_idx]] == y_patient[tgt_idx]]
+#         else:  # Class has no match, use argmax - should not happen
+#             raise NotImplementedError
+
+#         # Restrict to segmentation > 0.9 for negatives
+#         if not y_patient[tgt_idx]:
+#             seg = df_img[f'pred_{tgt.split("_")[0]}'].values
+#             seg = seg / (seg.max() + 1e-6)
+#             df_img = df_img[seg > 0.9]
+
+#         # Restrict to one series
+#         series = np.random.choice(df_img['series'].unique()) if self.train else df_img['series'].values[0]
+#         df_img = df_img[df_img['series'] == series]
+        
+#         # Sort by frame
+#         df_img = df_img.sort_values('frame').reset_index(drop=True)
+        
+#         # Pick a row
+#         if self.train:
+# #             display(df_img)
+            
+#             ps = np.exp(-((np.arange(len(df_img)) - len(df_img) // 2) / (0.4 * len(df_img))) ** 2)  # gaussian
+#             row_idx = np.random.choice(len(df_img), p=ps / ps.sum())
+# #             print(row_idx, len(df_img))
+# #             row_idx = np.random.choice(len(df_img))
+#             row = df_img.iloc[row_idx]
+#         else:
+#             row = df_img.iloc[len(df_img) // 2]  # center
+        
+#         if self.frames_chanel > 0:
+#             frame = row.frame
+#             frame = np.clip(frame, self.frames_chanel, self.max_frames[series] - self.frames_chanel)
+#             paths = [row.path.rsplit('_', 1)[0] + f'_{f:04d}.png' for f in [frame - self.frames_chanel, frame, frame + self.frames_chanel]]
+#             image = np.array([cv2.imread(path, 0) for path in paths]).transpose(1, 2, 0)
+#         else:
+#             image = cv2.imread(row.path)
+#         image = image.astype(np.float32) / 255.0
+
+#         if self.transforms:
+#             transformed = self.transforms(image=image)
+#             image = transformed["image"]
+
+#         y_patient = torch.tensor(y_patient, dtype=torch.float)
+#         y_img = torch.tensor(row[IMG_TARGETS_EXTENDED], dtype=torch.float)
+        
+# #         print(row)
+        
+#         if y_img.size(-1) == 5:  # Patient level - TODO : y_patient ?
+#             y_img = to_one_hot_patient(y_img.unsqueeze(0))[0]
+
+#             if self.use_soft_target:
+#                 y_img[0] *= row.pred_bowel
+#                 y_img[3:5] *= row.pred_kidney
+#                 y_img[2] = 1 - y_img[3] - y_img[4]
+#                 y_img[6:8] *= row.pred_liver
+#                 y_img[5] = 1 - y_img[6] - y_img[7]
+#                 y_img[9:] *= row.pred_spleen
+#                 y_img[8] = 1 - y_img[9] - y_img[10]
+
+#         if image.size(0) > 3:
+#             image = image.view(3, -1, image.size(1), image.size(2)).transpose(0, 1)
+
+#         return image, y_img, y_patient
 
 
 class Abdominal2DInfDataset(Dataset):

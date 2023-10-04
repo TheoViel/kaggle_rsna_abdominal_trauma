@@ -31,27 +31,42 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
     Returns:
         dict: Dice scores at different thresholds.
     """
+    if config.use_mask:
+        assert config.crop
+        assert config.resize == (384, 384)
+        resize = None
+    else:
+        resize = config.resize
+
     transfos = get_transfos(
-        strength=config.aug_strength, resize=config.resize, crop=config.crop
+        strength=config.aug_strength, resize=resize, crop=config.crop
     )
     train_dataset = AbdominalDataset(
         df_train,
         df_img_train,
         transforms=transfos,
         frames_chanel=config.frames_chanel,
+        n_frames=config.n_frames,
+        stride=config.stride,
         use_soft_target=config.use_soft_target,
+        use_mask=config.use_mask,
+        use_crops=config.use_crops,
         train=True,
     )
 
     transfos = get_transfos(
-        augment=False, resize=config.resize, crop=config.crop
+        augment=False, resize=resize, crop=config.crop
     )
     val_dataset = AbdominalDataset(
         df_val,
         df_img_val,
         transforms=transfos,
         frames_chanel=config.frames_chanel,
+        n_frames=config.n_frames,
+        stride=config.stride,
         use_soft_target=config.use_soft_target,
+        use_mask=config.use_mask,
+        use_crops=config.use_crops,
         train=False,
     )
 
@@ -72,6 +87,8 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
         drop_rate=config.drop_rate,
         drop_path_rate=config.drop_path_rate,
         use_gem=config.use_gem,
+        head_3d=config.head_3d,
+        n_frames=config.n_frames,
         replace_pad_conv=config.replace_pad_conv,
         num_classes=config.num_classes,
         num_classes_aux=config.num_classes_aux,

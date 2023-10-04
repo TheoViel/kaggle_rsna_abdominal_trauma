@@ -33,7 +33,11 @@ def evaluate(
     with torch.no_grad():
         for x, y, y_aux in val_loader:
             with torch.cuda.amp.autocast(enabled=use_fp16):
-                y_pred, y_pred_aux = model(x.cuda())
+                if isinstance(x, dict):
+                    y_pred, y_pred_aux = model(x['x'].cuda(), ft=x['ft'].cuda())
+                else:
+                    y_pred, y_pred_aux = model(x)
+
                 loss = loss_fct(
                     y_pred.detach(), y_pred_aux.detach(), y.cuda(), y_aux.cuda()
                 )
@@ -179,8 +183,9 @@ def fit(
             except AttributeError:
                 train_loader.batch_sampler.sampler.set_epoch(epoch)
 
-        for img, y, y_aux in tqdm(train_loader, disable=True):
-            img = img.cuda()
+        for x, y, y_aux in tqdm(train_loader, disable=True):
+            if not isinstance(x, dict):
+                x = x.cuda()
             y = y.cuda()
             y_aux = y_aux.cuda()
 
@@ -190,12 +195,14 @@ def fit(
                 else data_config["mix_proba"]
             )
             if np.random.random() < mix_p:
-                img, y, y_aux = mix(img, y, y_aux)
+                x, y, y_aux = mix(x, y, y_aux)
 
             with torch.cuda.amp.autocast(enabled=use_fp16):
-                y_pred, y_pred_aux = model(img)
+                if isinstance(x, dict):
+                    y_pred, y_pred_aux = model(x['x'].cuda(), ft=x['ft'].cuda())
+                else:
+                    y_pred, y_pred_aux = model(x)
                 
-#                 print(y_pred.size(), y_pred_aux.size(), y.size(), y_aux.size())
                 loss = loss_fct(y_pred, y_pred_aux, y, y_aux)
 
             scaler.scale(loss).backward()
@@ -247,15 +254,20 @@ def fit(
                     step_ = step * world_size
 
                     preds, preds_aux = preds[:len(val_dataset)], preds_aux[:len(val_dataset)]
-                    if preds.shape[1] in [2, 5]:  # image level or seg-cls
+                    if preds.shape[1] in [2, 4, 5]:  # image level or seg-cls
                         auc = np.mean([
                             roc_auc_score(val_dataset.img_targets[:, i], preds[:, i])
                             for i in range(preds.shape[1])
                         ])
-                    else:  # TODO
+                    elif preds.shape[1] == 3:  # Organ level kidney / liver / spleen
+                        auc = np.mean([
+                            roc_auc_score(val_dataset.targets == i, preds[:, i])
+                            for i in range(preds.shape[1])
+                        ])
+                    else:
                         if isinstance(val_dataset, PatientFeatureDataset):
                             rsna_losses, rsna_loss = rsna_score_study(preds, val_dataset)
-                        if isinstance(val_dataset, AbdominalDataset):
+                        elif isinstance(val_dataset, AbdominalDataset):
                             rsna_losses, rsna_loss = rsna_score_organs(preds, val_dataset)
                             auc = roc_auc_score_organs(preds, val_dataset)
 
@@ -264,10 +276,6 @@ def fit(
                     s = s + f"\t val_loss={avg_val_loss:.3f}" if avg_val_loss else s
                     s = s + f"    auc={auc:.3f}" if auc else s
                     s = s + f"    rsna_loss={rsna_loss:.3f}" if rsna_loss else s
-                        
-#                     for k in ['extravasation_injury', 'bowel_injury']:
-#                         s += f"\t{k.split('_')[0][:8]}_loss={rsna_losses[k]:.3f}"
-
                     print(s)
 
                 if run is not None:
