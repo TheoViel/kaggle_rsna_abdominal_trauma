@@ -80,7 +80,8 @@ def get_transfos(augment=True, resize=None, crop=False, mean=0, std=1, strength=
         resize_aug = [albu.Resize(resize[0], resize[1])]
     else:
         resize_aug = [albu.Compose([
-            albu.PadIfNeeded(resize[0], resize[1]),
+            albu.LongestMaxSize(512),
+            albu.PadIfNeeded(resize[0], resize[1], border_mode=0),
             albu.CenterCrop(resize[0], resize[1]),
         ])]
 

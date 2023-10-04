@@ -8,7 +8,7 @@ from sklearn.metrics import roc_auc_score
 from torch.nn.parallel import DistributedDataParallel
 
 from data.preparation import prepare_data
-from data.dataset import Abdominal2DInfDataset, AbdominalInfDataset
+from data.dataset import AbdominalInfDataset  # Abdominal2DInfDataset
 from data.transforms import get_transfos
 from data.loader import define_loaders
 from model_zoo.models import define_model
@@ -216,6 +216,7 @@ def kfold_inference(
             frames_chanel=config.frames_chanel if hasattr(config, "frames_chanel") else 0,
             n_frames=config.n_frames if hasattr(config, "n_frames") else 1,
             stride=config.stride if hasattr(config, "stride") else 1,
+            use_crops=config.use_crops if hasattr(config, "use_crops") else False
         )
 
         if distributed:

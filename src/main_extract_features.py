@@ -21,6 +21,7 @@ if __name__ == "__main__":
 #     EXP_FOLDER = "../logs/2023-09-20/36_r/"
 #     EXP_FOLDER = "../logs/2023-09-27/20_r/"
     EXP_FOLDER = "../logs/2023-09-26/39_r/"
+    EXP_FOLDER = "../logs/2023-10-03/25/"
     
     config = Config(json.load(open(EXP_FOLDER + "config.json", "r")))
     init_distributed(config)
@@ -30,7 +31,7 @@ if __name__ == "__main__":
 
     assert config.distributed
 
-    df_patient, df_img = prepare_data(DATA_PATH)
+    df_patient, df_img = prepare_data(DATA_PATH, with_crops=True)
     
     USE_FP16 = True
     SAVE = True

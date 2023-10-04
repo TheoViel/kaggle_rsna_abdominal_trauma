@@ -96,13 +96,13 @@ class Config:
     selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "coatnet_2_rw_224"  # tf_efficientnetv2_s convnextv2_tiny efficientnetv2_rw_t tf_efficientnet_b5_ns
+    name = "convnextv2_base"  # tf_efficientnetv2_s convnextv2_tiny efficientnetv2_rw_t tf_efficientnet_b5_ns
     pretrained_weights = None # PRETRAINED_WEIGHTS[name]  # None
 
     num_classes = 3
     num_classes_aux = 0
-    drop_rate = 0.05 if "convnext" in name else 0.2
-    drop_path_rate = 0.05 if "convnext" in name else 0.
+    drop_rate = 0.2 if "convnext" in name else 0.2
+    drop_path_rate = 0.2 if "convnext" in name else 0.
     n_channels = 4 if (use_mask and frames_chanel) else 3
     reduce_stride = False
     replace_pad_conv = False
@@ -127,7 +127,7 @@ class Config:
         "batch_size": 8,
         "val_bs": 16,
         "mix": "cutmix",
-        "mix_proba": 1. if "coat" in name else 0.5,
+        "mix_proba": 1.,  #  if "coat" in name else 0.5,
         "sched": False,
         "mix_alpha": 4,
         "additive_mix": False,

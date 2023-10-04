@@ -82,11 +82,12 @@ class Config:
     # Data
     resize = (384, 384)
     frames_chanel = 1
-    n_frames = 3
-    stride = 3
+    n_frames = 5
+    stride = 5
 
     aug_strength = 5
     crop = True
+    use_crops = False
     use_soft_target = False
     use_mask = False
 
@@ -96,7 +97,7 @@ class Config:
     selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "convnextv2_tiny"  # tf_efficientnetv2_s convnextv2_tiny efficientnetv2_rw_t tf_efficientnet_b5_ns
+    name = "convnextv2_tiny"  # coat_lite_medium_384
     pretrained_weights = None # PRETRAINED_WEIGHTS[name]  # None
 
     num_classes = 11
@@ -106,7 +107,7 @@ class Config:
     n_channels = 4 if (use_mask and frames_chanel) else 3
     reduce_stride = False
     replace_pad_conv = False
-    use_gem = True
+    use_gem = False
     head_3d = "lstm" if n_frames > 1 else ""
 
     # Training
@@ -124,7 +125,7 @@ class Config:
     }
 
     data_config = {
-        "batch_size": 8,
+        "batch_size": 32 if n_frames == 1 else 8,
         "val_bs": 16,
         "mix": "cutmix",
         "mix_proba": 0.5,
@@ -137,14 +138,14 @@ class Config:
 
     optimizer_config = {
         "name": "Ranger",
-        "lr": 2e-4,
+        "lr": 5e-4 if n_frames == 1 else 2e-4,
         "warmup_prop": 0.,
         "betas": (0.9, 0.999),
         "max_grad_norm": 1.,
         "weight_decay": 0.,
     }
 
-    epochs = 30
+    epochs = 40 if n_frames == 1 else 30
 
     use_fp16 = True
     verbose = 1
@@ -199,7 +200,7 @@ if __name__ == "__main__":
         config.data_config["batch_size"] = args.batch_size
         config.data_config["val_bs"] = args.batch_size
 
-    df_patient, df_img = prepare_data(DATA_PATH)
+    df_patient, df_img = prepare_data(DATA_PATH, with_crops=True)
 
 #     try:
 #         print(torch_performance_linter)  # noqa

@@ -50,6 +50,7 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
         stride=config.stride,
         use_soft_target=config.use_soft_target,
         use_mask=config.use_mask,
+        use_crops=config.use_crops,
         train=True,
     )
 
@@ -65,6 +66,7 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
         stride=config.stride,
         use_soft_target=config.use_soft_target,
         use_mask=config.use_mask,
+        use_crops=config.use_crops,
         train=False,
     )
 

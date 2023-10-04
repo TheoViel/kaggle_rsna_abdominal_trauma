@@ -39,7 +39,7 @@ def prepare_folds(data_path="../input/", k=4):
     return df_folds
 
 
-def prepare_data(data_path="../input/", with_seg=True):
+def prepare_data(data_path="../input/", with_seg=True, with_crops=False):
     """
     Prepare data for training or evaluation.
     TODO
@@ -64,6 +64,10 @@ def prepare_data(data_path="../input/", with_seg=True):
         #"kidney_low", "kidney_high", "liver_low", "liver_high"]] for soft labels ?
         for col in ["kidney", "liver", "spleen"]:
             df_img[f'{col}_injury'] = (df_img[f'pred_{col}'] > 0.9) * df_img[col]
+            
+    if with_crops:
+        df_crops = pd.read_csv(data_path + "df_crops.csv").drop(['frame', 'path'], axis=1)
+        df_img = df_img.merge(df_crops, how="left", on=["patient_id", "series"])
 
     return df_patient, df_img
 
@@ -159,3 +163,7 @@ def get_df_series(df_patient, df_img):
     df_series['mask_path'] = "../input/crops/masks/" + df_series['patient_id'].astype(str) + "_" + df_series['series'].astype(str) + "_" + df_series['organ'] + ".npy"
 
     return df_series
+
+
+def get_start_end(x):
+    return np.argmax(x), len(x) - np.argmax(x[::-1])

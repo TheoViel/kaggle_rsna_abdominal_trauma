@@ -34,6 +34,7 @@ class AbdominalInfDataset(Dataset):
         stride=1,
         use_mask=False,
         imgs={},
+        paths=[],
         features=[],
     ):
         """
@@ -59,6 +60,7 @@ class AbdominalInfDataset(Dataset):
 #         self.mask_folder = "../logs/2023-09-24/20/masks/"
         
         self.imgs = imgs
+        self.paths = paths
         self.features = features
 
         if len(features):
@@ -125,25 +127,8 @@ class AbdominalInfDataset(Dataset):
             max_frame=self.max_frames[series],
             min_frame=self.min_frames[series]
         )
-#         if idx >= len(self.df) - 2:
-#             print(np.clip(frame, self.frames_chanel, self.max_frames[series] - self.frames_chanel))
-#             print(frames)
-#         print(frames)
 
-        paths = [path.rsplit('_', 1)[0] + f'_{f:04d}.png' for f in frames]
-
-        image = []
-        for path, frame in zip(paths, frames):
-            img = self.imgs[path]
-            image.append(img)
-
-        image = np.array(image).transpose(1, 2, 0)
-#         image = image.astype(np.float32) / 255.
-
-        if self.transforms:
-            transformed = self.transforms(image=image)
-            image = transformed["image"]
-
+        image = self.imgs[np.array(frames)]
         if image.size(0) == 1:
             image = image.repeat(3, 1, 1)
 
@@ -179,19 +164,18 @@ def predict(
     preds = []
 
     loader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
+        dataset, batch_size=batch_size, shuffle=False, num_workers=0
     )
 
     with torch.no_grad():
         for img, _, _ in loader:
             with torch.cuda.amp.autocast(enabled=use_fp16):
                 img = img.cuda()
-                if img.size(1) == 1:
-                    img = img.repeat(1, 3, 1, 1)
 
                 y_pred = model(img)
                 if isinstance(y_pred, tuple):
                     y_pred = y_pred[0]
+#                 y_pred = torch.zeros((img.size(0), 11)).cuda()
 
             # Get probabilities
             if loss_config["activation"] == "sigmoid":

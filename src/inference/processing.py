@@ -75,7 +75,7 @@ def process(patient, study, on_gpu=False, data_path="", crop_size=None, restrict
         n_imgs = len(sorted_imgs)
     
     # Load
-    all_imgs = {}
+    all_imgs, paths = [], []
     for i, f in enumerate(sorted_imgs): # glob.glob(data_path + f"{patient}/{study}/*.dcm")):
         try:
             dicom = pydicom.dcmread(f)
@@ -96,19 +96,18 @@ def process(patient, study, on_gpu=False, data_path="", crop_size=None, restrict
 
             if dicom.PhotometricInterpretation == "MONOCHROME1":
                 img = 1 - img
+                
+            all_imgs.append(img.unsqueeze(0))
+            paths.append(f"{patient}_{study}_{i:04d}.png")
 
-            if on_gpu:
-                img = img.cpu().numpy()  # TODO : REMOVE
-
-            all_imgs[f"{patient}_{study}_{i:04d}.png"] = img.astype(np.float32)
+#             if on_gpu:
+#                 img = img.cpu().numpy()  # TODO : REMOVE
+#             all_imgs[f"{patient}_{study}_{i:04d}.png"] = img.astype(np.float32)
 
         except:
             pass
-
-#     for i, k in enumerate(sorted(imgs.keys())):
-#         all_imgs[f"{patient}_{study}_{i:04d}.png"] = imgs[k].astype(np.float32)
-
-    return all_imgs, n_imgs
+    all_imgs = torch.cat(all_imgs, 0)
+    return all_imgs, paths, n_imgs
 
 
 def standardize_pixel_array(

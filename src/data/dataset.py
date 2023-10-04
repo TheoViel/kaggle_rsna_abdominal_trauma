@@ -58,6 +58,7 @@ class AbdominalDataset(Dataset):
         train=False,
         use_soft_target=False,
         use_mask=False,
+        use_crops=False,
     ):
         """
         Constructor.
@@ -89,6 +90,8 @@ class AbdominalDataset(Dataset):
             "bowel_injury": 0.4,
             "extravasation_injury": 0.4, # 0.1,
         }
+        
+        self.use_crops = use_crops
 
     def __len__(self):
         """
@@ -146,49 +149,43 @@ class AbdominalDataset(Dataset):
         # Pick a row
         if self.train:
             ps = np.exp(-((np.arange(len(df_img)) - len(df_img) // 2) / (self.sigmas[tgt] * len(df_img))) ** 2)  # gaussian
-            ps[:self.stride * (self.n_frames - 1) + self.frames_chanel] = 0  # Stay in bounds
-            ps[-(self.stride * (self.n_frames - 1) + self.frames_chanel):] = 0  # Stay in bounds
-            if ps.max():
-                row_idx = np.random.choice(len(df_img), p=ps / ps.sum())
-            else:
-                row_idx = len(df_img) // 2 + np.random.choice([-2, -1, 0, 1, 2])
+            row_idx = np.random.choice(len(df_img), p=ps / ps.sum())
+            
+#             if self.frames > 1:
+#                 ps[:self.stride + self.frames_chanel] = 0  # Stay in bounds
+#                 ps[-self.stride + self.frames_chanel:] = 0  # Stay in bounds
 
-            try:
-                row = df_img.iloc[row_idx]
-            except:
-                # TODO : decrease sigma ?
-                ps = np.exp(-((np.arange(len(df_img)) - len(df_img) // 2) / (0.4 * len(df_img))) ** 2)
-                row_idx = np.random.choice(len(df_img), p=ps / ps.sum())
-#                 row_idx = np.random.choice(len(df_img))
-                row = df_img.iloc[row_idx]
+#                 if ps.max():
+#                     row_idx = np.random.choice(len(df_img), p=ps / ps.sum())
+#                 else:
+#                     row_idx = len(df_img) // 2 + np.random.choice([-2, -1, 0, 1, 2])
+
+#                 try:
+#                     row = df_img.iloc[row_idx]
+#                 except:
+#                     # TODO : decrease sigma ?
+#                     ps = np.exp(-((np.arange(len(df_img)) - len(df_img) // 2) / (0.4 * len(df_img))) ** 2)
+#                     row_idx = np.random.choice(len(df_img), p=ps / ps.sum())
+#     #                 row_idx = np.random.choice(len(df_img))
+            row = df_img.iloc[row_idx]
                 
         else:
             row = df_img.iloc[len(df_img) // 2]  # center
         
         if self.frames_chanel > 0 or self.n_frames > 1:
             frame = row.frame
-            frame = np.clip(frame, self.frames_chanel, self.max_frames[series] - self.frames_chanel)
             
-            image = None
-            try:
-                if self.frames_chanel == 1:
-                    frames = get_frames(
-                        frame, self.n_frames, 0, stride=self.stride, max_frame=self.max_frames[series]
-                    )
-                    prefix = re.sub("imgs", "imgs_adj_crop", row.path.rsplit('_', 1)[0])
-                    paths = [prefix + f'_{f:04d}.png' for f in frames]
-
-                    image = np.concatenate([cv2.imread(path) for path in paths], -1)
-            except:
-                pass
-
-            if image is None:
+            if self.n_frames <= 1:
+                frame = np.clip(frame, self.frames_chanel, self.max_frames[series] - self.frames_chanel)
+                frames = [frame - self.frames_chanel, frame, frame + self.frames_chanel]
+            else:
                 frames = get_frames(
                     frame, self.n_frames, self.frames_chanel, stride=self.stride, max_frame=self.max_frames[series]
                 )
-                prefix = row.path.rsplit('_', 1)[0]
-                paths = [prefix + f'_{f:04d}.png' for f in frames]
-                image = np.array([cv2.imread(path, 0) for path in paths]).transpose(1, 2, 0)  ## [64:-64, 64:-64, :]
+    
+            prefix = row.path.rsplit('_', 1)[0]
+            paths = [prefix + f'_{f:04d}.png' for f in frames]
+            image = np.array([cv2.imread(path, 0) for path in paths]).transpose(1, 2, 0)
 
         else:
             frame = row.frame
@@ -196,21 +193,28 @@ class AbdominalDataset(Dataset):
 
         image = image.astype(np.float32) / 255.0
 
+        if self.use_crops:
+            x_start, x_end, y_start, y_end = row.x_start, row.x_end, row.y_start, row.y_end
+            image = image[x_start: x_end, y_start: y_end]
+
+#         print(image.shape)
+        
         if self.use_mask:
-            if os.path.exists(self.mask_folder + f'mask_{patient}_{series}_{frame:04d}.png'):
-                mask = cv2.imread(self.mask_folder + f'mask_{patient}_{series}_{frame:04d}.png', 0)
-            else:
-                mask = np.zeros((384, 384), dtype=np.uint8)
-            image = center_crop_pad(image.transpose(2, 0, 1), mask.shape[0]).transpose(1, 2, 0)
+            raise NotImplementedError
+#             if os.path.exists(self.mask_folder + f'mask_{patient}_{series}_{frame:04d}.png'):
+#                 mask = cv2.imread(self.mask_folder + f'mask_{patient}_{series}_{frame:04d}.png', 0)
+#             else:
+#                 mask = np.zeros((384, 384), dtype=np.uint8)
+#             image = center_crop_pad(image.transpose(2, 0, 1), mask.shape[0]).transpose(1, 2, 0)
         
         if self.transforms:
-            if self.use_mask:
-                transformed = self.transforms(image=image, mask=mask)
-                image = transformed["image"]
-                mask = transformed["mask"]
-            else:
-                transformed = self.transforms(image=image)
-                image = transformed["image"]
+#             if self.use_mask:
+#                 transformed = self.transforms(image=image, mask=mask)
+#                 image = transformed["image"]
+#                 mask = transformed["mask"]
+#             else:
+            transformed = self.transforms(image=image)
+            image = transformed["image"]
 
         y_patient = torch.tensor(y_patient, dtype=torch.float)
         y_img = torch.tensor(row[IMG_TARGETS_EXTENDED], dtype=torch.float)
@@ -227,11 +231,11 @@ class AbdominalDataset(Dataset):
                 y_img[9:] *= row.pred_spleen
                 y_img[8] = 1 - y_img[9] - y_img[10]
                 
-        if self.use_mask:
-            if self.frames_chanel > 0:
-                image = torch.cat([image, mask.float().unsqueeze(0)], 0)
-            else:
-                image[-1] = mask.float()
+#         if self.use_mask:
+#             if self.frames_chanel > 0:
+#                 image = torch.cat([image, mask.float().unsqueeze(0)], 0)
+#             else:
+#                 image[-1] = mask.float()
 
 #         print(image.size())
         if self.n_frames > 1:
@@ -259,6 +263,7 @@ class AbdominalCropDataset(Dataset):
         train=False,
         use_soft_target=False,
         use_mask=False,
+        df_series=None
     ):
         """
         Constructor.
@@ -270,7 +275,7 @@ class AbdominalCropDataset(Dataset):
         """
         self.df_img = df_img
         self.df_patient = df_patient
-        self.df_series = get_df_series(df_patient, df_img)
+        self.df_series = get_df_series(df_patient, df_img) if df_series is None else df_series
         self.targets = self.df_series["target"].values
 
         self.transforms = transforms
@@ -390,6 +395,7 @@ class AbdominalInfDataset(Dataset):
         imgs={},
         features=[],
         single_frame=False,
+        use_crops=False,
     ):
         """
         Constructor.
@@ -407,6 +413,7 @@ class AbdominalInfDataset(Dataset):
         self.n_frames = n_frames
         self.stride = stride
         self.single_frame = single_frame
+        
 
         self.max_frames = dict(df[["series", "frame"]].groupby("series").max()['frame'])
 
@@ -418,7 +425,10 @@ class AbdominalInfDataset(Dataset):
 
         if len(features):
             self.features = dict(zip(self.get_keys(), features))
-            
+
+        self.use_crops = use_crops
+        if use_crops:
+            self.coords = self.df[['x_start', "x_end", 'y_start', 'y_end']].values
 
     def __len__(self):
         """
@@ -496,6 +506,11 @@ class AbdominalInfDataset(Dataset):
 
         image = np.array(image).transpose(1, 2, 0)
         image = image.astype(np.float32) / 255.
+        
+                
+        if self.use_crops:
+            x_start, x_end, y_start, y_end = self.coords[idx]
+            image = image[x_start: x_end, y_start: y_end]
 
         if self.transforms:
             transformed = self.transforms(image=image)
@@ -518,109 +533,118 @@ class AbdominalInfDataset(Dataset):
         return image, 0, 0
 
 
-class Abdominal2DInfDataset(Dataset):
-    def __init__(
-        self,
-        df,
-        transforms=None,
-        frames_chanel=0,
-        use_mask=False,
-        imgs={}
-    ):
-        """
-        Constructor.
+# class Abdominal2DInfDataset(Dataset):
+#     def __init__(
+#         self,
+#         df,
+#         transforms=None,
+#         frames_chanel=0,
+#         use_mask=False,
+#         imgs={},
+#         use_crops=False,
+#     ):
+#         """
+#         Constructor.
 
-        Args:
-            df_img (pandas DataFrame): Metadata containing information about the dataset.
-            df_patient (pandas DataFrame): Metadata containing information about the dataset.
-            transforms (albu transforms, optional): Transforms to apply to images and masks. Defaults to None.
-        """
-        self.df = df
-        self.info = self.df[['path', "patient_id", 'series', 'frame']].values
-        self.transforms = transforms
-        self.frames_chanel = frames_chanel
-        self.max_frames = dict(df[["series", "frame"]].groupby("series").max()['frame'])
+#         Args:
+#             df_img (pandas DataFrame): Metadata containing information about the dataset.
+#             df_patient (pandas DataFrame): Metadata containing information about the dataset.
+#             transforms (albu transforms, optional): Transforms to apply to images and masks. Defaults to None.
+#         """
+#         self.df = df
+#         self.info = self.df[['path', "patient_id", 'series', 'frame']].values
+#         self.transforms = transforms
+#         self.frames_chanel = frames_chanel
+#         self.max_frames = dict(df[["series", "frame"]].groupby("series").max()['frame'])
 
-        self.use_mask = use_mask
-        self.mask_folder = "../logs/2023-09-24/20/masks/"
+#         self.use_mask = use_mask
+#         self.mask_folder = "../logs/2023-09-24/20/masks/"
         
-        self.imgs = imgs
+#         self.imgs = imgs
+        
+#         self.use_crops = use_crops
+#         if use_crops:
+#             self.coords = self.df[['x_start', "x_end", 'y_start', 'y_end']].values
 
-    def __len__(self):
-        """
-        Get the length of the dataset.
+#     def __len__(self):
+#         """
+#         Get the length of the dataset.
 
-        Returns:
-            int: Length of the dataset.
-        """
-        return len(self.df)
+#         Returns:
+#             int: Length of the dataset.
+#         """
+#         return len(self.df)
             
-    def __getitem__(self, idx):
-        """
-        Item accessor.
+#     def __getitem__(self, idx):
+#         """
+#         Item accessor.
 
-        Args:
-            idx (int): Index.
+#         Args:
+#             idx (int): Index.
 
-        Returns:
-            torch.Tensor: Image as a tensor of shape [C, H, W].
-            torch.Tensor: Mask as a tensor of shape [1 or 7, H, W].
-            torch.Tensor: Label as a tensor of shape [1].
-        """
-        path, patient, series, frame = self.info[idx]
+#         Returns:
+#             torch.Tensor: Image as a tensor of shape [C, H, W].
+#             torch.Tensor: Mask as a tensor of shape [1 or 7, H, W].
+#             torch.Tensor: Label as a tensor of shape [1].
+#         """
+#         path, patient, series, frame = self.info[idx]
 
-        if self.frames_chanel > 0:
-            frame = np.clip(frame, self.frames_chanel, self.max_frames[series] - self.frames_chanel)
-            frames = [frame - self.frames_chanel, frame, frame + self.frames_chanel]
-            paths = [path.rsplit('_', 1)[0] + f'_{f:04d}.png' for f in frames]
+#         if self.frames_chanel > 0:
+#             frame = np.clip(frame, self.frames_chanel, self.max_frames[series] - self.frames_chanel)
+#             frames = [frame - self.frames_chanel, frame, frame + self.frames_chanel]
+#             paths = [path.rsplit('_', 1)[0] + f'_{f:04d}.png' for f in frames]
             
-            image = []
-            for path, frame in zip(paths, frames):
-                try:
-                    img = self.imgs[path]
-                except:
-                    img = cv2.imread(path, 0)
+#             image = []
+#             for path, frame in zip(paths, frames):
+#                 try:
+#                     img = self.imgs[path]
+#                 except:
+#                     img = cv2.imread(path, 0)
 
-                    if not (idx + 1 % 10000):  # clear buffer
-                        self.imgs = {}
-                    self.imgs[path] = img
+#                     if not (idx + 1 % 10000):  # clear buffer
+#                         self.imgs = {}
+#                     self.imgs[path] = img
 
-                image.append(img)
-            image = np.array(image).transpose(1, 2, 0)
+#                 image.append(img)
+#             image = np.array(image).transpose(1, 2, 0)
 
-        else:
-            try:
-                image = self.imgs[path]
-                if len(image.shape) == 2:
-                    image = np.concatenate([image[:, :, None]] * 3, -1)
-            except:
-                image = cv2.imread(path)
+#         else:
+#             try:
+#                 image = self.imgs[path]
+#                 if len(image.shape) == 2:
+#                     image = np.concatenate([image[:, :, None]] * 3, -1)
+#             except:
+#                 image = cv2.imread(path)
                 
-        if self.use_mask:
-            if os.path.exists(self.mask_folder + f'mask_{patient}_{series}_{frame:04d}.png'):
-                mask = cv2.imread(self.mask_folder + f'mask_{patient}_{series}_{frame:04d}.png', 0)
-            else:
-                mask = np.zeros((384, 384), dtype=np.uint8)
-            image = center_crop_pad(image.transpose(2, 0, 1), mask.shape[0]).transpose(1, 2, 0)
+# #         if self.use_mask:
+# #             if os.path.exists(self.mask_folder + f'mask_{patient}_{series}_{frame:04d}.png'):
+# #                 mask = cv2.imread(self.mask_folder + f'mask_{patient}_{series}_{frame:04d}.png', 0)
+# #             else:
+# #                 mask = np.zeros((384, 384), dtype=np.uint8)
+# #             image = center_crop_pad(image.transpose(2, 0, 1), mask.shape[0]).transpose(1, 2, 0)
 
-        image = image.astype(np.float32) / 255.
+#         image = image.astype(np.float32) / 255.
+        
+#         if self.use_crops:
+#             x_start, x_end, y_start, y_end = self.coords[idx]
+#             image = image[x_start: x_end, y_start: y_end]
 
-        if self.transforms:
-            if self.use_mask:
-                transformed = self.transforms(image=image, mask=mask)
-                image = transformed["image"]
-                mask = transformed["mask"]
-            else:
-                transformed = self.transforms(image=image)
-                image = transformed["image"]
+#         if self.transforms:
+#             if self.use_mask:
+#                 transformed = self.transforms(image=image, mask=mask)
+#                 image = transformed["image"]
+#                 mask = transformed["mask"]
+#             else:
+#                 transformed = self.transforms(image=image)
+#                 image = transformed["image"]
 
-        if self.use_mask:
-            if self.frames_chanel > 0:
-                image = torch.cat([image, mask.float().unsqueeze(0)], 0)
-            else:
-                image[-1] = mask.float()
+# #         if self.use_mask:
+# #             if self.frames_chanel > 0:
+# #                 image = torch.cat([image, mask.float().unsqueeze(0)], 0)
+# #             else:
+# #                 image[-1] = mask.float()
             
-        return image, 0, 0
+#         return image, 0, 0
 
 
 class SegDataset(Dataset):

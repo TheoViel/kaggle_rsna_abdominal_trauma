@@ -12,6 +12,7 @@ class PatientFeatureInfDataset(Dataset):
         self,
         series,
         exp_folders,
+        crop_fts=None,
         max_len=None,
         restrict=False,
         resize=None,
@@ -22,6 +23,7 @@ class PatientFeatureInfDataset(Dataset):
         self.max_len = max_len
         self.restrict = restrict
         self.resize = resize
+        self.crop_fts = crop_fts
 
     @staticmethod
     def retrieve_features(series, exp_folders, save_folder=""):
@@ -36,6 +38,8 @@ class PatientFeatureInfDataset(Dataset):
                     fts.append(seg)
                 elif mode == "seg3d":
                     raise NotImplementedError
+                elif mode == "crop":
+                    continue
                 elif mode == "yolox":
                     raise NotImplementedError
                 else:  # proba
@@ -69,6 +73,7 @@ class PatientFeatureInfDataset(Dataset):
 
     def __getitem__(self, idx):
         fts = self.fts[idx]
+        crop_fts = self.crop_fts[idx] if self.crop_fts is not None else None
         
         # THIS WORKS :
         if self.restrict:
@@ -92,8 +97,13 @@ class PatientFeatureInfDataset(Dataset):
                 fts = self.pad(fts)
                 
             fts = torch.from_numpy(fts).float()
+            
+        if crop_fts is not None:
+            crop_fts = torch.from_numpy(crop_fts).float()
+        else:
+            crop_fts = 0
 
-        return fts, 0, 0
+        return {"x": fts, "ft": crop_fts}, 0, 0
 
 
 def predict(model, dataset, loss_config, batch_size=64, device="cuda", use_fp16=False, num_workers=8):
@@ -121,9 +131,9 @@ def predict(model, dataset, loss_config, batch_size=64, device="cuda", use_fp16=
     )
 
     with torch.no_grad():
-        for img, _, _ in loader:
+        for x, _, _ in loader:
             with torch.cuda.amp.autocast(enabled=use_fp16):
-                y_pred, _ = model(img.cuda())
+                y_pred, _ = model(x["x"].cuda(), x["ft"].cuda())
 
             # Get probabilities
             if loss_config["activation"] == "sigmoid":

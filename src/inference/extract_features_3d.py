@@ -259,6 +259,7 @@ def kfold_inference(
             n_frames=config.n_frames,
             stride=config.stride,
             single_frame=True,
+            use_crops=config.use_crops if hasattr(config, "use_crops") else False
         )
 
         features = predict_fct(
