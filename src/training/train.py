@@ -36,7 +36,7 @@ def evaluate(
                 if isinstance(x, dict):
                     y_pred, y_pred_aux = model(x['x'].cuda(), ft=x['ft'].cuda())
                 else:
-                    y_pred, y_pred_aux = model(x)
+                    y_pred, y_pred_aux = model(x.cuda())
 
                 loss = loss_fct(
                     y_pred.detach(), y_pred_aux.detach(), y.cuda(), y_aux.cuda()

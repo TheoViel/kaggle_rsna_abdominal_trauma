@@ -83,7 +83,7 @@ class Config:
     resize = (224, 224)
     frames_chanel = 1
     n_frames = 7
-    stride = 3
+    stride = -1
 
     aug_strength = 5
     crop = False
@@ -96,7 +96,7 @@ class Config:
     selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "convnextv2_base"  # tf_efficientnetv2_s convnextv2_tiny efficientnetv2_rw_t tf_efficientnet_b5_ns
+    name = "swin_tiny_patch4_window7_224"  # tf_efficientnetv2_s convnextv2_tiny efficientnetv2_rw_t tf_efficientnet_b5_ns
     pretrained_weights = None # PRETRAINED_WEIGHTS[name]  # None
 
     num_classes = 3

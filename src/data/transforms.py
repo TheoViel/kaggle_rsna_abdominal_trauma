@@ -79,11 +79,19 @@ def get_transfos(augment=True, resize=None, crop=False, mean=0, std=1, strength=
     elif not crop:
         resize_aug = [albu.Resize(resize[0], resize[1])]
     else:
-        resize_aug = [albu.Compose([
-            albu.LongestMaxSize(512),
-            albu.PadIfNeeded(resize[0], resize[1], border_mode=0),
-            albu.CenterCrop(resize[0], resize[1]),
-        ])]
+        if resize[0] >= 384:
+            resize_aug = [albu.Compose([
+                albu.LongestMaxSize(512),
+                albu.PadIfNeeded(resize[0], resize[1], border_mode=0),
+                albu.CenterCrop(resize[0], resize[1]),
+            ])]
+        else:
+            resize_aug = [albu.Compose([
+                albu.LongestMaxSize(512),
+                albu.PadIfNeeded(384, 384, border_mode=0),
+                albu.CenterCrop(384, 384),
+                albu.Resize(resize[0], resize[1])
+            ])]
 
     normalizer = albu.Compose(
         resize_aug

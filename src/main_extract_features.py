@@ -16,14 +16,18 @@ from params import DATA_PATH
 if __name__ == "__main__":
     warnings.simplefilter("ignore", UserWarning)
 
-#     EXP_FOLDER = "../logs/2023-09-25/26/"
-#     EXP_FOLDER = "../logs/2023-09-28/27/"
+    EXP_FOLDER = "../logs/2023-09-20/14/"
 #     EXP_FOLDER = "../logs/2023-09-20/36_r/"
 #     EXP_FOLDER = "../logs/2023-09-27/20_r/"
-    EXP_FOLDER = "../logs/2023-09-26/39_r/"
-    EXP_FOLDER = "../logs/2023-10-03/25/"
+#     EXP_FOLDER = "../logs/2023-09-26/39_r/"
+#     EXP_FOLDER = "../logs/2023-10-03/25/"
+#     EXP_FOLDER = "../logs/2023-10-04/19/"
+#     EXP_FOLDER = "../logs/2023-10-04/31/"
+#     EXP_FOLDER = "../logs/2023-09-27/20_r/
+    EXP_FOLDER = "../logs/2023-10-05/23/"
     
     config = Config(json.load(open(EXP_FOLDER + "config.json", "r")))
+#     config.use_crops = True
     init_distributed(config)
 
     if config.local_rank == 0:

@@ -260,8 +260,11 @@ class ClsModel(nn.Module):
         """
         fts = self.encoder(x)
 
+        if "swin" in self.encoder.name:
+            fts = fts.transpose(2, 3).transpose(1, 2)
+
         if self.head_3d != "cnn":
-            if self.use_gem:
+            if self.use_gem and len(fts.size()) == 4:
                 fts = self.global_pool(fts)[:, :, 0, 0]
             else:
                 while len(fts.size()) > 2:
@@ -364,7 +367,7 @@ class ClsModel(nn.Module):
         if self.head_3d:
             bs, n_frames, c, h, w = x.size()
             x = x.view(bs * n_frames, c, h, w)
-            
+
         fts = self.extract_features(x)
 
         if self.head_3d:

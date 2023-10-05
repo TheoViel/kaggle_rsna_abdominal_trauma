@@ -30,7 +30,13 @@ def to_one_hot_patient(y):
 
 
 def get_frames(frame, n_frames, frames_c, stride=1, max_frame=100):
-    frames = np.arange(n_frames) * stride
+    if stride == -1:
+        frames = np.linspace(
+            0, max_frame, n_frames + 4, endpoint=True, dtype=int
+        )[2: -2]
+        
+    else:
+        frames = np.arange(n_frames) * stride
     frames = frames - frames[n_frames // 2] + frame
     
     if frames_c:
@@ -194,6 +200,12 @@ class AbdominalDataset(Dataset):
         image = image.astype(np.float32) / 255.0
 
         if self.use_crops:
+            ref_size = 512
+            if image.shape[1] != ref_size:
+                h = int(ref_size / image.shape[1] * image.shape[0])
+                image = cv2.resize(image, (ref_size, h))
+#             else:
+#                 continue
             x_start, x_end, y_start, y_end = row.x_start, row.x_end, row.y_start, row.y_end
             image = image[x_start: x_end, y_start: y_end]
 
@@ -247,6 +259,9 @@ class AbdominalDataset(Dataset):
                 image = image.view(
                     1, self.n_frames, image.size(1), image.size(2)
                 ).repeat(3, 1, 1, 1).transpose(0, 1)
+        else:
+            if not self.frames_chanel:
+                image = image.repeat(3, 1, 1)
 
         return image, y_img, y_patient
 
@@ -502,12 +517,24 @@ class AbdominalInfDataset(Dataset):
                 if not (idx + 1 % 10000):  # clear buffer
                     self.imgs = {}
                 self.imgs[path] = img
+                
+            if self.use_crops:
+                ref_size = 512
+                if img.shape[1] != ref_size:
+                    h = int(ref_size / img.shape[1] * img.shape[0])
+                    img = cv2.resize(img, (ref_size, h))
             image.append(img)
 
         image = np.array(image).transpose(1, 2, 0)
         image = image.astype(np.float32) / 255.
         
-                
+#         if self.use_crops:
+# #             ref_size = 512
+# #             if image.shape[1] != ref_size:
+# #                 h = int(ref_size / image.shape[1] * image.shape[0])
+# #                 image = cv2.resize(image, (ref_size, h))
+#             x_start, x_end, y_start, y_end = row.x_start, row.x_end, row.y_start, row.y_end
+#             image = image[x_start: x_end, y_start: y_end]
         if self.use_crops:
             x_start, x_end, y_start, y_end = self.coords[idx]
             image = image[x_start: x_end, y_start: y_end]
@@ -529,122 +556,11 @@ class AbdominalInfDataset(Dataset):
                     image = image.view(
                         1, self.n_frames, image.size(1), image.size(2)
                     ).repeat(3, 1, 1, 1).transpose(0, 1)
+#     else:
+        if image.size(0) == 1:
+            image = image.repeat(3, 1, 1)
 
         return image, 0, 0
-
-
-# class Abdominal2DInfDataset(Dataset):
-#     def __init__(
-#         self,
-#         df,
-#         transforms=None,
-#         frames_chanel=0,
-#         use_mask=False,
-#         imgs={},
-#         use_crops=False,
-#     ):
-#         """
-#         Constructor.
-
-#         Args:
-#             df_img (pandas DataFrame): Metadata containing information about the dataset.
-#             df_patient (pandas DataFrame): Metadata containing information about the dataset.
-#             transforms (albu transforms, optional): Transforms to apply to images and masks. Defaults to None.
-#         """
-#         self.df = df
-#         self.info = self.df[['path', "patient_id", 'series', 'frame']].values
-#         self.transforms = transforms
-#         self.frames_chanel = frames_chanel
-#         self.max_frames = dict(df[["series", "frame"]].groupby("series").max()['frame'])
-
-#         self.use_mask = use_mask
-#         self.mask_folder = "../logs/2023-09-24/20/masks/"
-        
-#         self.imgs = imgs
-        
-#         self.use_crops = use_crops
-#         if use_crops:
-#             self.coords = self.df[['x_start', "x_end", 'y_start', 'y_end']].values
-
-#     def __len__(self):
-#         """
-#         Get the length of the dataset.
-
-#         Returns:
-#             int: Length of the dataset.
-#         """
-#         return len(self.df)
-            
-#     def __getitem__(self, idx):
-#         """
-#         Item accessor.
-
-#         Args:
-#             idx (int): Index.
-
-#         Returns:
-#             torch.Tensor: Image as a tensor of shape [C, H, W].
-#             torch.Tensor: Mask as a tensor of shape [1 or 7, H, W].
-#             torch.Tensor: Label as a tensor of shape [1].
-#         """
-#         path, patient, series, frame = self.info[idx]
-
-#         if self.frames_chanel > 0:
-#             frame = np.clip(frame, self.frames_chanel, self.max_frames[series] - self.frames_chanel)
-#             frames = [frame - self.frames_chanel, frame, frame + self.frames_chanel]
-#             paths = [path.rsplit('_', 1)[0] + f'_{f:04d}.png' for f in frames]
-            
-#             image = []
-#             for path, frame in zip(paths, frames):
-#                 try:
-#                     img = self.imgs[path]
-#                 except:
-#                     img = cv2.imread(path, 0)
-
-#                     if not (idx + 1 % 10000):  # clear buffer
-#                         self.imgs = {}
-#                     self.imgs[path] = img
-
-#                 image.append(img)
-#             image = np.array(image).transpose(1, 2, 0)
-
-#         else:
-#             try:
-#                 image = self.imgs[path]
-#                 if len(image.shape) == 2:
-#                     image = np.concatenate([image[:, :, None]] * 3, -1)
-#             except:
-#                 image = cv2.imread(path)
-                
-# #         if self.use_mask:
-# #             if os.path.exists(self.mask_folder + f'mask_{patient}_{series}_{frame:04d}.png'):
-# #                 mask = cv2.imread(self.mask_folder + f'mask_{patient}_{series}_{frame:04d}.png', 0)
-# #             else:
-# #                 mask = np.zeros((384, 384), dtype=np.uint8)
-# #             image = center_crop_pad(image.transpose(2, 0, 1), mask.shape[0]).transpose(1, 2, 0)
-
-#         image = image.astype(np.float32) / 255.
-        
-#         if self.use_crops:
-#             x_start, x_end, y_start, y_end = self.coords[idx]
-#             image = image[x_start: x_end, y_start: y_end]
-
-#         if self.transforms:
-#             if self.use_mask:
-#                 transformed = self.transforms(image=image, mask=mask)
-#                 image = transformed["image"]
-#                 mask = transformed["mask"]
-#             else:
-#                 transformed = self.transforms(image=image)
-#                 image = transformed["image"]
-
-# #         if self.use_mask:
-# #             if self.frames_chanel > 0:
-# #                 image = torch.cat([image, mask.float().unsqueeze(0)], 0)
-# #             else:
-# #                 image[-1] = mask.float()
-            
-#         return image, 0, 0
 
 
 class SegDataset(Dataset):

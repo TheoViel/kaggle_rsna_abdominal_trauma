@@ -204,12 +204,6 @@ def kfold_inference(
             crop=config.crop,
         )
 
-#         dataset = Abdominal2DInfDataset(
-#             df_val,
-#             transforms=transforms,
-#             frames_chanel=config.frames_chanel if hasattr(config, "frames_chanel") else 0,
-#             use_mask=config.use_mask,
-#         )
         dataset = AbdominalInfDataset(
             df_val,
             transforms=transforms,

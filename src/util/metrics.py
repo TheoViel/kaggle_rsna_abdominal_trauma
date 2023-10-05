@@ -31,11 +31,9 @@ def rsna_loss(preds, truths, eps=1e-6):
     truths: df
     '''
     if isinstance(preds, torch.Tensor):
-        preds = preds.cpu().numpy()
-        
-    preds = np.clip(preds, eps, 1 - eps)
-    preds = preds.copy()
+        preds = preds.clone().cpu().numpy()
 
+    preds = preds.copy()
     if isinstance(preds, np.ndarray):
         if preds.shape[-1] == 11:
             preds = [preds[:, 0], preds[:, 1], preds[:, 2: 5], preds[:, 5: 8], preds[:, 8:]]
@@ -65,7 +63,7 @@ def rsna_loss(preds, truths, eps=1e-6):
 #         print(pred.shape)
 
         if pred.shape[-1] in [2, 3]:  # softmax
-            pred = pred / pred.sum(1, keepdims=True)
+#             pred = pred / pred.sum(1, keepdims=True)
             labels = np.arange(pred.shape[-1])
         else:  # sigmoid was used, we have p of injury
             labels = [0, 1]
@@ -80,7 +78,8 @@ def rsna_loss(preds, truths, eps=1e-6):
     return losses, np.mean(list(losses.values()))
 
 
-def rsna_score_study(preds, dataset):
+def rsna_score_study(preds, dataset, eps=1e-6):
+    preds = preds.astype(np.float64)
     patients = [d[0] for d in dataset.ids]
     df_preds = pd.DataFrame({"patient_id": patients})
     
@@ -93,11 +92,14 @@ def rsna_score_study(preds, dataset):
     
     df = dataset.df_patient.merge(df_preds, on="patient_id")
     preds = df[preds_cols].values
+    
+    preds = np.clip(preds, eps, 1 - eps)
 
     return rsna_loss(preds, df)
 
 
 def rsna_score_organs(preds, dataset, eps=1e-6):
+    preds = preds.astype(np.float64)
     preds = preds.reshape(-1, 5, preds.shape[-1]).max(1)
     preds = np.clip(preds, eps, 1 - eps)
     return rsna_loss(preds, dataset.df_patient)

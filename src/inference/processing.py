@@ -3,6 +3,7 @@ import torch
 import pydicom
 import dicomsdl
 import numpy as np
+import torch.nn.functional as F
 
 
 def restrict_imgs(img_paths, max_len=600, margin=10):
@@ -88,6 +89,13 @@ def process(patient, study, on_gpu=False, data_path="", crop_size=None, restrict
             img = standardize_pixel_array(dicom, pixel_array=pixel_array, on_gpu=on_gpu)
             img = (img - img.min()) / (img.max() - img.min() + 1e-6)
             
+            ref_size = 512
+            if img.size(1) != ref_size:
+                h = int(ref_size / img.size(1) * img.size(0))
+                img = F.interpolate(
+                    img.unsqueeze(0).unsqueeze(0), size=(h, ref_size), mode="bilinear"
+                )[0, 0]
+
             if crop_size is not None:
                 if on_gpu:
                     img = center_crop_pad_gpu(img, size=crop_size)

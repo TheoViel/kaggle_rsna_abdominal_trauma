@@ -209,17 +209,20 @@ def upload_to_kaggle(folders, directory, dataset_name, update_folders=True):
         dataset_name (_type_): _description_
     """
     os.makedirs(directory, exist_ok=True)
+    
+    def custom_ignore(src, names):
+        folders_to_skip = ['masks']
+        return [name for name in names if name in [folders_to_skip]]
 
     for folder in folders:
         print(f"- Copying {folder} ...")
         name = "_".join(folder[:-1].split("/")[-2:])
         try:
-            shutil.copytree(folder, directory + name)
+            shutil.copytree(folder, directory + name,  ignore=lambda src, names: [n for n in names if "mask" in n])
         except FileExistsError:
             if update_folders:
                 shutil.rmtree(directory + name)
-                shutil.copytree(folder, directory + name)
-        
+                shutil.copytree(folder, directory + name, ignore=lambda src, names: [n for n in names if "mask" in n])
         for i in range(4):
             try:
                 os.remove(f'{directory + name}/fts_val_{i}.npy')

@@ -1,27 +1,7 @@
 import torch
 import numpy as np
-
-# from data.dataset import get_frames
+from data.dataset import get_frames
 from torch.utils.data import Dataset, DataLoader
-
-
-def get_frames(frame, n_frames, frames_c, stride=1, max_frame=100, min_frame=0):
-    frames = np.arange(n_frames) * stride
-    frames = frames - frames[n_frames // 2] + frame
-
-    if frames_c:
-        offset = np.tile(np.arange(-1, 2) * frames_c, len(frames))
-        frames = np.repeat(frames, 3) + offset
-
-    if frames.min() < 0:
-        frames -= frames.min()
-#     if frames.min() < 1:
-#         frames -= frames.min() - 1
-    elif frames.max() > max_frame:
-        frames += max_frame - frames.max()
-
-    frames = np.clip(frames, min_frame, max_frame)
-    return frames
 
 
 class AbdominalInfDataset(Dataset):

@@ -82,8 +82,8 @@ class Config:
     # Data
     resize = (384, 384)
     frames_chanel = 1
-    n_frames = 5
-    stride = 5
+    n_frames = 3
+    stride = 3
 
     aug_strength = 5
     crop = True
@@ -97,7 +97,7 @@ class Config:
     selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "convnextv2_tiny"  # coat_lite_medium_384
+    name = "maxvit_tiny_tf_384"  # coat_lite_medium_384
     pretrained_weights = None # PRETRAINED_WEIGHTS[name]  # None
 
     num_classes = 11
@@ -107,7 +107,7 @@ class Config:
     n_channels = 4 if (use_mask and frames_chanel) else 3
     reduce_stride = False
     replace_pad_conv = False
-    use_gem = False
+    use_gem = True
     head_3d = "lstm" if n_frames > 1 else ""
 
     # Training
@@ -125,8 +125,8 @@ class Config:
     }
 
     data_config = {
-        "batch_size": 32 if n_frames == 1 else 8,
-        "val_bs": 16,
+        "batch_size": 32 if n_frames <= 1 else 8,
+        "val_bs":  32 if n_frames <= 1 else 16,
         "mix": "cutmix",
         "mix_proba": 0.5,
         "sched": False,
@@ -138,7 +138,7 @@ class Config:
 
     optimizer_config = {
         "name": "Ranger",
-        "lr": 5e-4 if n_frames == 1 else 2e-4,
+        "lr": 5e-4 if n_frames <= 1 else 2e-4,
         "warmup_prop": 0.,
         "betas": (0.9, 0.999),
         "max_grad_norm": 1.,
