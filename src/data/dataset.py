@@ -65,6 +65,7 @@ class AbdominalDataset(Dataset):
         use_soft_target=False,
         use_mask=False,
         use_crops=False,
+        bowel_extrav_only=False,
     ):
         """
         Constructor.
@@ -82,6 +83,9 @@ class AbdominalDataset(Dataset):
         self.stride = stride
         self.train = train
         self.use_soft_target = use_soft_target
+        
+        self.bowel_extrav_only = bowel_extrav_only
+        self.classes = IMG_TARGETS_EXTENDED[:2] if bowel_extrav_only else IMG_TARGETS_EXTENDED
     
         self.targets = df_patient[PATIENT_TARGETS].values
         self.max_frames = dict(df_img[["series", "frame"]].groupby("series").max()['frame'])
@@ -106,7 +110,7 @@ class AbdominalDataset(Dataset):
         Returns:
             int: Length of the dataset.
         """
-        return len(self.df_patient) * 5
+        return len(self.df_patient) * len(self.classes)
     
     def __getitem__(self, idx):
         """
@@ -120,18 +124,18 @@ class AbdominalDataset(Dataset):
             torch.Tensor: Label as a tensor of shape [5].
             torch.Tensor: Aux label as a tensor of shape [5].
         """
-        tgt_idx = idx % 5
-        tgt = IMG_TARGETS_EXTENDED[tgt_idx]
+        tgt_idx = idx % len(self.classes)
+        tgt = self.classes[tgt_idx]
 
-        idx = idx // 5
+        idx = idx // len(self.classes)
         patient = self.df_patient['patient_id'].values[idx]
         y_patient = self.targets[idx]
 
         df_img = self.df_img[self.df_img['patient_id'] == patient]
 
         # Restrict to considered class
-        if (df_img[IMG_TARGETS_EXTENDED[tgt_idx]] == y_patient[tgt_idx]).max():  
-            df_img = df_img[df_img[IMG_TARGETS_EXTENDED[tgt_idx]] == y_patient[tgt_idx]]
+        if (df_img[self.classes[tgt_idx]] == y_patient[tgt_idx]).max():  
+            df_img = df_img[df_img[self.classes[tgt_idx]] == y_patient[tgt_idx]]
         else:  # Class has no match, use argmax - should not happen
             raise NotImplementedError
 
@@ -229,7 +233,7 @@ class AbdominalDataset(Dataset):
             image = transformed["image"]
 
         y_patient = torch.tensor(y_patient, dtype=torch.float)
-        y_img = torch.tensor(row[IMG_TARGETS_EXTENDED], dtype=torch.float)
+        y_img = torch.tensor(row[self.classes], dtype=torch.float)
         
         if y_img.size(-1) == 5:  # Patient level - TODO : y_patient ?
             y_img = to_one_hot_patient(y_img.unsqueeze(0))[0]
@@ -328,7 +332,8 @@ class AbdominalCropDataset(Dataset):
         
         if self.use_mask:
             mask = np.load(self.df_series['mask_path'].values[idx])
-            assert mask.shape == img.shape
+#             if mask.shape != img.shape:
+#                 print(f'Mask shape {mask.shape}, img shape {img.shape}')
             
         organ = self.df_series['organ'].values[idx]
         if organ == "kidney":
@@ -336,6 +341,10 @@ class AbdominalCropDataset(Dataset):
             img = np.concatenate([img[:, :, :d], img[:, :, -d:]], -1)
             if self.use_mask:
                 mask = np.concatenate([mask[:, :, :d], mask[:, :, -d:]], -1)
+                
+        if self.use_mask:
+            classes = ["", 'liver', 'spleen', 'kidney']
+            mask = (mask == classes.index(organ)).astype(int)
         
         # Pick frame(s)
         if self.train:
@@ -359,7 +368,10 @@ class AbdominalCropDataset(Dataset):
         image = img[np.array(frames)].transpose(1, 2, 0)
         image = image.astype(np.float32) / 255.0
         if self.use_mask:
-            mask = mask[np.array(frames)].transpose(1, 2, 0)
+            if self.frames_chanel:
+                mask = mask[np.array(frames)[1:][::3]].transpose(1, 2, 0)
+            else:
+                mask = mask[np.array(frames)].transpose(1, 2, 0)
         
         # Augment
         if self.transforms:
@@ -380,20 +392,16 @@ class AbdominalCropDataset(Dataset):
                 image = image.view(
                     self.n_frames, 3, image.size(1), image.size(2)
                 )  # .transpose(0, 1)
-                if self.use_mask:
-                    mask = mask.view(
-                        self.n_frames, 3, image.size(1), image.size(2)
-                    )[:, 1]
-                    image = torch.cat([image, mask], 1)
             else:
                 image = image.view(
                     1, self.n_frames, image.size(1), image.size(2)
                 ).repeat(3 if self.use_mask else 2, 1, 1, 1).transpose(0, 1)
-                if self.use_mask:
-                    mask = mask.view(
-                        1, self.n_frames, image.size(1), image.size(2)
-                    ).transpose(0, 1)
-                    image = torch.cat([image, mask], 1)
+            if self.use_mask:
+                mask = mask.transpose(1, 2).transpose(0, 1).float()
+                mask = mask.view(
+                    1, self.n_frames, mask.size(1), mask.size(2)
+                ).transpose(0, 1)
+                image = torch.cat([image, mask], 1)
 
         return image, y_img, 0
 
@@ -766,13 +774,14 @@ class Seg3dDataset(Dataset):
 
     
 class PatientFeatureDataset(Dataset):
-    def __init__(self, df_patient, df_img, exp_folders, max_len=None, restrict=False, resize=None):
+    def __init__(self, df_patient, df_img, exp_folders, max_len=None, restrict=False, resize=None, use_other_series=False):
         self.df_patient = df_patient
         self.fts, self.crop_fts = self.retrieve_features(df_img, exp_folders)
         self.ids = list(self.fts.keys())
         self.max_len = max_len
         self.restrict = restrict
         self.resize = resize
+        self.use_other_series = use_other_series
 
     def retrieve_features(self, df, exp_folders):
         features_dict = {}
@@ -794,49 +803,28 @@ class PatientFeatureDataset(Dataset):
                     file = sorted(glob.glob(exp_folder + ".npy"))[fold]
                     conf = np.load(file)
                     fts.append(conf[:, None])
+                elif mode == "bowel_extrav":
+                    ft = np.load(exp_folder + f"pred_val_{fold}.npy")
+                    assert ft.shape[-1] == 2
+                    fts.append(np.concatenate([
+                        ft[:, :1] * seg[:, -1:],  # bowel
+                        ft[:, 1:2] * seg.max(-1, keepdims=True),  # extravasation
+                    ], -1))      
+#                     ft = ft[:len(df_val)]
+                    fts.append(ft)
                 else:  # proba
                     ft = np.load(exp_folder + f"pred_val_{fold}.npy")
-                    ft = ft[:len(df_val)]
+#                     ft = ft[:len(df_val)]
                     fts.append(ft)
 
                     kidney = seg[:, 2: 4].max(-1, keepdims=True) if seg.shape[-1] == 5 else seg[:, 2: 3]
-
-#                     fts.append(np.concatenate([
-#                         ft[:, :1] * seg[:, -1:],  # bowel
-#                         ft[:, 1:2] * seg.max(-1, keepdims=True),  # extravasation
-#                         ft[:, 3: 5] * kidney,  # kidney
-#                         ft[:, 6: 8] * seg[:, :1],  # liver
-#                         ft[:, 9:] * seg[:, 1:2],  # spleen
-#                     ], -1))
-
                     fts.append(np.concatenate([
                         ft[:, :1] * seg[:, -1:],  # bowel
                         ft[:, 1:2] * seg.max(-1, keepdims=True),  # extravasation
                         ft[:, 2: 5] * kidney,  # kidney
                         ft[:, 5: 8] * seg[:, :1],  # liver
                         ft[:, 8:] * seg[:, 1:2],  # spleen
-                    ], -1))
-                    
-#                 elif mode == "probas_3d":
-#                     ft_3d = np.load(exp_folder + f"pred_val_{fold}.npy")
-#                 elif mode == "probas_2d" or mode == "probas":  # proba
-#                     ft_2d = np.load(exp_folder + f"pred_val_{fold}.npy")
-                    
-#                     ft = ft_2d if ft_3d is None else ft_2d
-#                     ft[:, 1] = ft_2d[:, 1]
-                    
-#                     fts.append(ft)
-
-#                     kidney = seg[:, 2: 4].max(-1, keepdims=True) if seg.shape[-1] == 5 else seg[:, 2: 3]
-
-#                     fts.append(np.concatenate([
-#                         ft[:, :1] * seg[:, -1:],  # bowel
-#                         ft[:, 1:2] * seg.max(-1, keepdims=True),  # extravasation
-#                         ft[:, 2: 5] * kidney,  # kidney
-#                         ft[:, 5: 8] * seg[:, :1],  # liver
-#                         ft[:, 8:] * seg[:, 1:2],  # spleen
-#                     ], -1))
-                
+                    ], -1))                
             try:
                 fts = np.concatenate(fts, axis=1)
             except:
@@ -884,45 +872,30 @@ class PatientFeatureDataset(Dataset):
                         crop_features_dict[(p, s)] = crop_scores[i]  # cls x score
                     except KeyError:
                         print(p, s)
-
-#         for exp_folder, mode in exp_folders:
-#             if mode == "seg3d":
-#                 for k in features_dict.keys():
-#                     seg3d = np.load(exp_folder + f"masks/mask_counts_{k[0]}_{k[1]}.npy").T
-#                     seg3d = seg3d / (seg3d.max(0, keepdims=True) + 1)
-#                     seg3d = np.where(seg3d > 0.2, 1, seg3d * 5)
-                    
-#                     seg3d_pad = np.zeros((len(features_dict[k]), seg3d.shape[-1]))
-#                     seg3d_pad[-len(seg3d):] = seg3d
-                    
-#                     features_dict[k][:, 0] += seg3d_pad[:, 0]
-#                     features_dict[k][:, 1] += seg3d_pad[:, 1]
-#                     features_dict[k][:, 2] += seg3d_pad[:, 2]
-#                     features_dict[k][:, 3] += seg3d_pad[:, 2]
-#                     features_dict[k][:, 4] += seg3d_pad[:, 3]
-#                     features_dict[k][:, :5] /= 2
-                    
-#                     ft = features_dict[k][:, 5: 16]
-#                     seg = features_dict[k][:, :5]
-#                     features_dict[k][:, -11:] = np.concatenate([
-#                         ft[:, :1] * seg[:, -1:],  # bowel
-#                         ft[:, 1:2] * seg.max(-1, keepdims=True),  # extravasation
-#                         ft[:, 2: 5] * seg[:, 2: 4].max(-1, keepdims=True),  # kidney
-#                         ft[:, 5: 8] * seg[:, :1],  # liver
-#                         ft[:, 8:] * seg[:, 1:2],  # spleen
-#                     ], -1)
-#                     features_dict[k] = np.concatenate([features_dict[k], seg3d_pad], 1)
                     
         return features_dict, crop_features_dict
 
-    def pad(self, x):
-        length = x.shape[0]
-        if length > self.max_len:
-            return x[-self.max_len:]
+    @staticmethod
+    def restrict_fts(fts):
+        if len(fts) > 400:
+            fts = fts[len(fts) // 6:]
         else:
-            padded = np.zeros([self.max_len] + list(x.shape[1:]))
-            padded[-length:] = x
-            return padded
+            fts = fts[len(fts) // 8:]
+        return fts
+    
+    @staticmethod
+    def resize_fts(fts, size, max_len=None):
+        if max_len is not None:  # crop too long
+            fts = fts[-max_len:]
+            
+        fts = fts[::2].copy()
+            
+        fts = F.interpolate(
+            torch.from_numpy(fts.T).float().unsqueeze(0),
+            size=size,
+            mode="linear"
+        )[0].transpose(0, 1)
+        return fts
         
     def __len__(self):
         return len(self.fts)
@@ -945,53 +918,49 @@ class PatientFeatureDataset(Dataset):
         return start, end
 
     def __getitem__(self, idx):
+        patient_series = self.ids[idx]
+
+        fts = self.fts[patient_series]
+        crop_fts = self.crop_fts.get(patient_series, None)
         
-        patient_study = self.ids[idx]
+#         other_fts = None
+#         if self.use_other_series:
+#             other_series = [
+#                 k for k in self.fts.keys()
+#                 if (k[0] == patient_series[0] and k[1] !=  patient_series[1])
+#             ]
+#             if len(other_series):
+#                 other_series = other_series[0]
+#                 other_fts = self.fts[other_series]
+#             else:
+#                 other_fts = fts.copy()
+                
+#             other_fts = other_fts[::2].copy()
+# #             other_seg, other_fts = other_fts[:, :5], other_fts[:, 5:].reshape(other_fts.shape[0], 11, -1)
+# #             other_fts = other_fts[:, 1]
+# #                 print(other_fts.shape)
 
-        fts = self.fts[patient_study]
-        
-        crop_fts = self.crop_fts.get(patient_study, None)
-        
-#         if len(fts) > 100:
-#             fts = fts[len(fts) // 10:]
+# #                 print(other_fts.shape, fts.shape)
+#             if self.restrict:
+#                 other_fts = self.restrict_fts(other_fts)
 
-#         print(fts.shape)
-#         fts = fts[len(fts) // 10:]
-#         seg = fts[:, :5]
-#         fts = fts[seg.max(-1) > min(0.9, seg.max() * 0.9)]
-#         print(fts.shape)
-            
-#         fts = fts[len(fts) // 8:]
+#             if self.resize:
+#                 other_fts = self.resize_fts(other_fts, self.resize, self.max_len)
+#             else:
+#                 if self.max_len is not None:
+#                     other_fts = self.pad(other_fts)
+#                 other_fts = torch.from_numpy(other_fts).float()
+#         else:
+        other_fts = 0
 
-#         if len(fts) > 400:
-#             start, end = self.detect_start_end(fts)
-#             fts = fts[start:]
-
-#         fts[:len(fts) // 8] = 0
-#         seg = fts[:, :5]
-#         fts[seg.max(-1) < min(0.9, seg.max() * 0.9)] = 0
-
-        # THIS WORKS :
         if self.restrict:
-            if len(fts) > 400:
-                fts = fts[len(fts) // 6:]
-            else:
-                fts = fts[len(fts) // 8:]
-        
-        if self.resize:
-            if self.max_len is not None:  # crop too long
-                fts = fts[-self.max_len:]
+            fts = self.restrict_fts(fts)
 
-            fts = F.interpolate(
-                torch.from_numpy(fts.T).float().unsqueeze(0),
-                size=self.resize,
-                mode="linear"
-            )[0].transpose(0, 1)
-        
+        if self.resize:
+            fts = self.resize_fts(fts, self.resize, self.max_len)
         else:
             if self.max_len is not None:
                 fts = self.pad(fts)
-                
             fts = torch.from_numpy(fts).float()
             
         if crop_fts is not None:
@@ -999,7 +968,7 @@ class PatientFeatureDataset(Dataset):
         else:
             crop_fts = 0
         
-        y = self.df_patient[self.df_patient['patient_id'] == patient_study[0]][PATIENT_TARGETS].values[0]
+        y = self.df_patient[self.df_patient['patient_id'] == patient_series[0]][PATIENT_TARGETS].values[0]
         y = torch.from_numpy(y).float()  # bowel, extravasion, kidney, liver, spleen
 
-        return {"x": fts, "ft": crop_fts}, y, 0
+        return {"x": fts, "ft": crop_fts, "other_x": other_fts}, y, 0

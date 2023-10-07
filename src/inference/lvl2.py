@@ -16,7 +16,8 @@ class PatientFeatureInfDataset(Dataset):
         max_len=None,
         restrict=False,
         resize=None,
-        save_folder=""
+        save_folder="",
+        half=False,
     ):
         self.fts = self.retrieve_features(series, exp_folders, save_folder=save_folder)
         self.ids = [0]
@@ -24,6 +25,7 @@ class PatientFeatureInfDataset(Dataset):
         self.restrict = restrict
         self.resize = resize
         self.crop_fts = crop_fts
+        self.half = half
 
     @staticmethod
     def retrieve_features(series, exp_folders, save_folder=""):
@@ -81,10 +83,13 @@ class PatientFeatureInfDataset(Dataset):
                 fts = fts[len(fts) // 6:]
             else:
                 fts = fts[len(fts) // 8:]
-        
+
         if self.resize:
             if self.max_len is not None:  # crop too long
                 fts = fts[-self.max_len:]
+                
+            if self.half:
+                fts = fts[::2].copy()
 
             fts = F.interpolate(
                 torch.from_numpy(fts.T).float().unsqueeze(0),

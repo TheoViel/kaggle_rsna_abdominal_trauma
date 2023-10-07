@@ -206,31 +206,27 @@ class ClsModel(nn.Module):
         if self.n_channels != 3:
             if "convnext" in self.encoder.name:
                 conv = self.encoder.stem[0]
-                new_conv = nn.Conv2d(self.n_channels, conv.out_channels, kernel_size=conv.kernel_size, stride=conv.stride, padding=conv.padding)
+            elif "coat_lite" in self.encoder.name:
+                conv = self.encoder.patch_embed1.proj
+            elif "coatnet" in self.encoder.name:
+                conv = self.encoder.stem.conv1
+                
+            new_conv = nn.Conv2d(self.n_channels, conv.out_channels, kernel_size=conv.kernel_size, stride=conv.stride, padding=conv.padding)
 
-                new_conv_w = new_conv.weight.clone().detach()
-                new_conv_w[:, :3] = conv.weight.clone().detach()
-                new_conv.weight = torch.nn.Parameter(new_conv_w, requires_grad=True)
+            new_conv_w = new_conv.weight.clone().detach()
+            new_conv_w[:, :3] = conv.weight.clone().detach()
+            new_conv.weight = torch.nn.Parameter(new_conv_w, requires_grad=True)
 
+            if conv.bias is not None:
                 new_conv_b = conv.bias.clone().detach()
                 new_conv.bias = torch.nn.Parameter(new_conv_b, requires_grad=True)
-                
+
+            if "convnext" in self.encoder.name:
                 self.encoder.stem[0] = new_conv
-            else:
-                for n, m in self.encoder.named_modules():
-                    if n:
-                        # print("Replacing", n)
-                        old_conv = getattr(self.encoder, n)
-                        new_conv = nn.Conv2d(
-                            self.n_channels,
-                            old_conv.out_channels,
-                            kernel_size=old_conv.kernel_size,
-                            stride=old_conv.stride,
-                            padding=old_conv.padding,
-                            bias=old_conv.bias is not None,
-                        )
-                        setattr(self.encoder, n, new_conv)
-                        break
+            elif "coat_lite" in self.encoder.name:
+                self.encoder.patch_embed1.proj = new_conv
+            elif "coatnet" in self.encoder.name:
+                self.encoder.stem.conv1  = new_conv
 
     def reduce_stride(self):
         if "efficient" in self.encoder.name:

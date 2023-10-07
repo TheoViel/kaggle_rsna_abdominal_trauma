@@ -199,7 +199,11 @@ def fit(
 
             with torch.cuda.amp.autocast(enabled=use_fp16):
                 if isinstance(x, dict):
-                    y_pred, y_pred_aux = model(x['x'].cuda(), ft=x['ft'].cuda())
+                    y_pred, y_pred_aux = model(
+                        x['x'].cuda(),
+                        ft=x['ft'].cuda(),
+                        x_other=x['other_x'].cuda(),
+                    )
                 else:
                     y_pred, y_pred_aux = model(x)
                 
@@ -255,10 +259,13 @@ def fit(
 
                     preds, preds_aux = preds[:len(val_dataset)], preds_aux[:len(val_dataset)]
                     if preds.shape[1] in [2, 4, 5]:  # image level or seg-cls
-                        auc = np.mean([
-                            roc_auc_score(val_dataset.img_targets[:, i], preds[:, i])
-                            for i in range(preds.shape[1])
-                        ])
+                        if isinstance(val_dataset, AbdominalDataset):
+                            auc = roc_auc_score_organs(preds, val_dataset)
+                        else:
+                            auc = np.mean([
+                                roc_auc_score(val_dataset.img_targets[:, i], preds[:, i])
+                                for i in range(preds.shape[1])
+                            ])
                     elif preds.shape[1] == 3:  # Organ level kidney / liver / spleen
                         auc = np.mean([
                             roc_auc_score(val_dataset.targets == i, preds[:, i])

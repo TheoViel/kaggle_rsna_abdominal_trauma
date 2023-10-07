@@ -106,18 +106,17 @@ def rsna_score_organs(preds, dataset, eps=1e-6):
 
 
 def roc_auc_score_organs(preds, dataset):
-    preds = preds.reshape(-1, 5, preds.shape[-1]).max(1)
+    preds = preds.reshape(-1, len(dataset.classes), preds.shape[-1]).max(1)
     mapping = {'bowel_injury': 0, 'extravasation_injury': 1, 'kidney': 2, 'liver': 5, 'spleen': 8}
     aucs = []
-    for tgt in PATIENT_TARGETS:
+    for i, tgt in enumerate(PATIENT_TARGETS):
+        if i >= len(dataset.classes):
+            break
+
         if "injury" in tgt:
             auc = roc_auc_score(dataset.df_patient[tgt] > 0, preds[:, mapping[tgt]])
         else:
-#             try:
             auc = roc_auc_score(dataset.df_patient[tgt] <= 0, preds[:, mapping[tgt]])
-#             except:
-#                 pass
-
         aucs.append(auc)
     return np.mean(aucs)
 

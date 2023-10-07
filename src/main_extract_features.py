@@ -24,7 +24,7 @@ if __name__ == "__main__":
 #     EXP_FOLDER = "../logs/2023-10-04/19/"
 #     EXP_FOLDER = "../logs/2023-10-04/31/"
 #     EXP_FOLDER = "../logs/2023-09-27/20_r/
-    EXP_FOLDER = "../logs/2023-10-05/23/"
+    EXP_FOLDER = "../logs/2023-10-06/3/"
     
     config = Config(json.load(open(EXP_FOLDER + "config.json", "r")))
 #     config.use_crops = True

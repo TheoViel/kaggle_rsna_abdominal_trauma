@@ -34,7 +34,7 @@ class AbdominalInfDataset(Dataset):
         self.stride = stride
 
         self.max_frames = dict(df[["series", "frame"]].groupby("series").max()['frame'])
-        self.min_frames = dict(df[["series", "frame"]].groupby("series").min()["frame"])
+#         self.min_frames = dict(df[["series", "frame"]].groupby("series").min()["frame"])
 
 #         self.use_mask = use_mask
 #         self.mask_folder = "../logs/2023-09-24/20/masks/"
@@ -45,8 +45,7 @@ class AbdominalInfDataset(Dataset):
 
         if len(features):
             self.features = dict(zip(self.get_keys(), features))
-            
-
+        
     def __len__(self):
         """
         Get the length of the dataset.
@@ -54,7 +53,7 @@ class AbdominalInfDataset(Dataset):
         Returns:
             int: Length of the dataset.
         """
-        return len(self.df)
+        return len(self.info)
     
     def get_keys(self):
         keys = []
@@ -105,7 +104,7 @@ class AbdominalInfDataset(Dataset):
             self.frames_chanel,
             stride=1,
             max_frame=self.max_frames[series],
-            min_frame=self.min_frames[series]
+#             min_frame=self.min_frames[series]
         )
 
         image = self.imgs[np.array(frames)]

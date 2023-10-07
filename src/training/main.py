@@ -51,6 +51,7 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
         use_soft_target=config.use_soft_target,
         use_mask=config.use_mask,
         use_crops=config.use_crops,
+        bowel_extrav_only=config.bowel_extrav_only,
         train=True,
     )
 
@@ -67,6 +68,7 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
         use_soft_target=config.use_soft_target,
         use_mask=config.use_mask,
         use_crops=config.use_crops,
+        bowel_extrav_only=config.bowel_extrav_only,
         train=False,
     )
 
@@ -76,9 +78,7 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
         ) or config.pretrained_weights.endswith(".bin"):
             pretrained_weights = config.pretrained_weights
         else:  # folder
-            pretrained_weights = glob.glob(config.pretrained_weights + f"*_{fold}.pt")[
-                0
-            ]
+            pretrained_weights = config.pretrained_weights + f"{config.name}_{fold}.pt"
     else:
         pretrained_weights = None
 

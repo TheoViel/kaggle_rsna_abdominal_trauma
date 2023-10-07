@@ -11,6 +11,11 @@ from util.logger import create_logger, save_config, prepare_log_folder, init_nep
 
 from params import DATA_PATH
 
+PRETRAINED_WEIGHTS = {
+    "convnextv2_tiny": "../logs/2023-10-06/38/",
+    "maxvit_tiny_tf_384": "../logs/2023-10-05/13/",
+}
+
 
 def parse_args():
     """
@@ -82,8 +87,8 @@ class Config:
     # Data
     resize = (384, 384)
     frames_chanel = 1
-    n_frames = 3
-    stride = 3
+    n_frames = 1
+    stride = 1
 
     aug_strength = 5
     crop = True
@@ -91,16 +96,18 @@ class Config:
     use_soft_target = False
     use_mask = False
 
+    bowel_extrav_only = True
+
     # k-fold
     k = 4
     folds_file = f"../input/folds_{k}.csv"
     selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "maxvit_tiny_tf_384"  # coat_lite_medium_384
-    pretrained_weights = None # PRETRAINED_WEIGHTS[name]  # None
+    name = "maxvit_tiny_tf_384"  # convnextv2_tiny maxvit_tiny_tf_384
+    pretrained_weights = None  # PRETRAINED_WEIGHTS[name]  # None 
 
-    num_classes = 11
+    num_classes = 2 if bowel_extrav_only else 11
     num_classes_aux = 0
     drop_rate = 0.05 if "convnext" in name else 0.1
     drop_path_rate = 0.05 if "convnext" in name else 0.1
@@ -112,11 +119,11 @@ class Config:
 
     # Training
     loss_config = {
-        "name": "patient",
+        "name": "bce" if bowel_extrav_only else "patient",
         "weighted": False,
         "use_any": False,
         "smoothing": 0.,
-        "activation": "patient",
+        "activation": "sigmoid" if bowel_extrav_only else "patient",
         "aux_loss_weight": 0.,  # Not ok with cutmix!
         "name_aux": "patient",
         "smoothing_aux": 0.,
@@ -146,6 +153,8 @@ class Config:
     }
 
     epochs = 40 if n_frames == 1 else 30
+#     if bowel_extrav_only:
+#         epochs *= 2
 
     use_fp16 = True
     verbose = 1

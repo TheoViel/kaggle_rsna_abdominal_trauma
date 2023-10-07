@@ -37,6 +37,7 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
         max_len=config.max_len,
         resize=config.resize,
         restrict=config.restrict,
+        use_other_series=config.use_other_series,
     )
 
     val_dataset = PatientFeatureDataset(
@@ -46,6 +47,7 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
         max_len=config.max_len,
         resize=config.resize,
         restrict=config.restrict,
+        use_other_series=config.use_other_series,
     )
 
     model = define_model(
@@ -59,6 +61,7 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
         num_classes=config.num_classes,
         num_classes_aux=config.num_classes_aux,
         n_fts=config.n_fts,
+        use_other_series=config.use_other_series,
     ).cuda()
 
     if config.distributed:

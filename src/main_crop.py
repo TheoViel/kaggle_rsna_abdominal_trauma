@@ -82,13 +82,13 @@ class Config:
     # Data
     resize = (224, 224)
     frames_chanel = 1
-    n_frames = 7
+    n_frames = 9
     stride = -1
 
     aug_strength = 5
     crop = False
     use_soft_target = False
-    use_mask = False
+    use_mask = True
 
     # k-fold
     k = 4
@@ -96,7 +96,7 @@ class Config:
     selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "swin_tiny_patch4_window7_224"  # tf_efficientnetv2_s convnextv2_tiny efficientnetv2_rw_t tf_efficientnet_b5_ns
+    name = "coatnet_1_rw_224"  # coat_lite_medium coat_lite_medium_384 coatnet_1_rw_224 coatnet_rmlp_1_rw2_224
     pretrained_weights = None # PRETRAINED_WEIGHTS[name]  # None
 
     num_classes = 3
