@@ -77,8 +77,8 @@ class InferenceDataset(Dataset):
         """
         image = cv2.imread(self.paths[idx])
         
-        shape = image.shape
-#         shape = (384, 384)
+#         shape = image.shape
+        shape = (384, 384)
 
         if self.transforms is not None:
             try:

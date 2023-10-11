@@ -96,7 +96,7 @@ class Config:
     use_soft_target = False
     use_mask = False
 
-    bowel_extrav_only = True
+    bowel_extrav_only = False
 
     # k-fold
     k = 4
@@ -104,13 +104,13 @@ class Config:
     selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "maxvit_tiny_tf_384"  # convnextv2_tiny maxvit_tiny_tf_384
+    name = "coatnet_rmlp_2_rw_384"  # convnextv2_tiny maxvit_tiny_tf_384
     pretrained_weights = None  # PRETRAINED_WEIGHTS[name]  # None 
 
     num_classes = 2 if bowel_extrav_only else 11
     num_classes_aux = 0
-    drop_rate = 0.05 if "convnext" in name else 0.1
-    drop_path_rate = 0.05 if "convnext" in name else 0.1
+    drop_rate = 0.05 if "convnext" in name else 0.2
+    drop_path_rate = 0.05 if "convnext" in name else 0.2
     n_channels = 4 if (use_mask and frames_chanel) else 3
     reduce_stride = False
     replace_pad_conv = False
@@ -135,7 +135,7 @@ class Config:
         "batch_size": 32 if n_frames <= 1 else 8,
         "val_bs":  32 if n_frames <= 1 else 16,
         "mix": "cutmix",
-        "mix_proba": 0.5,
+        "mix_proba": 1.,
         "sched": False,
         "mix_alpha": 4,
         "additive_mix": False,
@@ -148,13 +148,11 @@ class Config:
         "lr": 5e-4 if n_frames <= 1 else 2e-4,
         "warmup_prop": 0.,
         "betas": (0.9, 0.999),
-        "max_grad_norm": 1.,
+        "max_grad_norm": 0.1,
         "weight_decay": 0.,
     }
 
-    epochs = 40 if n_frames == 1 else 30
-#     if bowel_extrav_only:
-#         epochs *= 2
+    epochs = 15  # 40 if n_frames == 1 else 30
 
     use_fp16 = True
     verbose = 1

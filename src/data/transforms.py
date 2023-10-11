@@ -79,7 +79,7 @@ def get_transfos(augment=True, resize=None, crop=False, mean=0, std=1, strength=
     elif not crop:
         resize_aug = [albu.Resize(resize[0], resize[1])]
     else:
-        if resize[0] >= 384:
+        if resize[0] == 384:
             resize_aug = [albu.Compose([
                 albu.LongestMaxSize(512),
                 albu.PadIfNeeded(resize[0], resize[1], border_mode=0),

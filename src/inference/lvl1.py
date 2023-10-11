@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import torch.nn.functional as F
 from data.dataset import get_frames
 from torch.utils.data import Dataset, DataLoader
 
@@ -8,7 +9,6 @@ class AbdominalInfDataset(Dataset):
     def __init__(
         self,
         df,
-        transforms=None,
         frames_chanel=0,
         n_frames=1,
         stride=1,
@@ -27,17 +27,11 @@ class AbdominalInfDataset(Dataset):
         """
         self.df = df
         self.info = self.df[['path', "patient_id", 'series', 'frame']].values
-        self.transforms = transforms
-
         self.frames_chanel = frames_chanel
         self.n_frames = n_frames
         self.stride = stride
 
         self.max_frames = dict(df[["series", "frame"]].groupby("series").max()['frame'])
-#         self.min_frames = dict(df[["series", "frame"]].groupby("series").min()["frame"])
-
-#         self.use_mask = use_mask
-#         self.mask_folder = "../logs/2023-09-24/20/masks/"
         
         self.imgs = imgs
         self.paths = paths
@@ -122,6 +116,7 @@ def predict(
     device="cuda",
     use_fp16=False,
     num_workers=8,
+    resize=None,
 ):
     """
     Perform inference using a single model and generate predictions for the given dataset.
@@ -143,13 +138,18 @@ def predict(
     preds = []
 
     loader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=False, num_workers=0
+        dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
     )
 
     with torch.no_grad():
         for img, _, _ in loader:
             with torch.cuda.amp.autocast(enabled=use_fp16):
                 img = img.cuda()
+
+                if resize is not None:
+                    img = F.interpolate(
+                        img, size=resize, mode="bilinear"
+                    )
 
                 y_pred = model(img)
                 if isinstance(y_pred, tuple):

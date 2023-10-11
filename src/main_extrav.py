@@ -5,7 +5,7 @@ import warnings
 import argparse
 import pandas as pd
 
-from data.preparation import prepare_data
+from data.preparation import prepare_extrav_data
 from util.torch import init_distributed
 from util.logger import create_logger, save_config, prepare_log_folder, init_neptune, get_last_log_folder
 
@@ -82,7 +82,7 @@ class Config:
     # Data
     resize = (224, 224)
     frames_chanel = 1
-    n_frames = 9
+    n_frames = 3
     stride = -1
 
     aug_strength = 5
@@ -93,13 +93,13 @@ class Config:
     # k-fold
     k = 4
     folds_file = f"../input/folds_{k}.csv"
-    selected_folds = [0, 1, 2, 3]
+    selected_folds = [0]  # , 1, 2, 3]
 
     # Model
     name = "coatnet_1_rw_224"  # coat_lite_medium coat_lite_medium_384 coatnet_1_rw_224 coatnet_rmlp_1_rw2_224
     pretrained_weights = None # PRETRAINED_WEIGHTS[name]  # None
 
-    num_classes = 3
+    num_classes = 1
     num_classes_aux = 0
     drop_rate = 0.2 if "convnext" in name else 0.2
     drop_path_rate = 0.2 if "convnext" in name else 0.
@@ -111,11 +111,11 @@ class Config:
 
     # Training
     loss_config = {
-        "name": "ce",
+        "name": "bce",
         "weighted": False,
         "use_any": False,
         "smoothing": 0.,
-        "activation": "softmax",
+        "activation": "sigmoid",
         "aux_loss_weight": 0.,  # Not ok with cutmix!
         "name_aux": "patient",
         "smoothing_aux": 0.,
@@ -144,7 +144,7 @@ class Config:
         "weight_decay": 0.,
     }
 
-    epochs = 20
+    epochs = 200
 
     use_fp16 = True
     verbose = 1
@@ -199,7 +199,7 @@ if __name__ == "__main__":
         config.data_config["batch_size"] = args.batch_size
         config.data_config["val_bs"] = args.batch_size
 
-    df_patient, df_img = prepare_data(DATA_PATH)
+    df = prepare_extrav_data(DATA_PATH)
 
 #     try:
 #         print(torch_performance_linter)  # noqa
@@ -211,7 +211,7 @@ if __name__ == "__main__":
 #     except Exception:
     run = None
     if config.local_rank == 0:
-        run = init_neptune(config, log_folder)
+#         run = init_neptune(config, log_folder)
 
         if args.fold > -1:
             config.selected_folds = [args.fold]
@@ -233,23 +233,8 @@ if __name__ == "__main__":
         )
         print("\n -> Training\n")
 
-    from training.main_crop import k_fold
-    k_fold(config, df_patient, df_img, log_folder=log_folder, run=run)
-
-#     if len(config.selected_folds) == 4:
-#         if config.local_rank == 0:
-#             print("\n -> Extracting features\n")
-
-#         if config.head_3d == "cnn":
-#             from inference.extract_features_3d_cnn import kfold_inference
-#         elif config.head_3d:
-#             from inference.extract_features_3d import kfold_inference
-#         else:
-#             from inference.extract_features import kfold_inference
-    
-#         kfold_inference(
-#             df_patient, df_img, log_folder, use_fp16=config.use_fp16, save=True, distributed=True, config=config
-#         )
+    from training.main_extrav import k_fold
+    k_fold(config, df, log_folder=log_folder, run=run)
 
     if config.local_rank == 0:
         print("\nDone !")

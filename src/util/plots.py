@@ -84,7 +84,7 @@ def show_cmap(kidney=False):
     plt.show()
 
     
-def plot_boxes(img, boxes, bbox_format="yolo"):
+def plot_boxes(img, boxes, bbox_format="yolo", merged_boxes=None):
     """
     Plots an image with bounding boxes.
     Coordinates are expected in format [x_center, y_center, width, height].
@@ -93,8 +93,9 @@ def plot_boxes(img, boxes, bbox_format="yolo"):
         img (numpy.ndarray): The input image to be plotted.
         boxes_list (list): A list of lists containing the bounding box coordinates.
     """
-    if len(boxes.shape) == 1:
-        boxes = boxes[None]
+    boxes = np.array(boxes)
+#     if len(boxes.shape) == 1:
+#         boxes = boxes[None]
         
     plt.imshow(img, cmap="gray")
     plt.axis(False)
@@ -121,3 +122,27 @@ def plot_boxes(img, boxes, bbox_format="yolo"):
             )
 
         plt.gca().add_patch(rect)
+        
+    if merged_boxes is not None:
+        for box in merged_boxes:
+            if bbox_format == "yolo":
+                h, w = img.shape[:2]
+                rect = Rectangle(
+                    ((box[0] - box[2] / 2) * w, (box[1] - box[3] / 2) * h),
+                    box[2] * w,
+                    box[3] * h,
+                    linewidth=1.5,
+                    facecolor="none",
+                    edgecolor="skyblue",
+                )
+            else:
+                rect = Rectangle(
+                    (box[0], box[1]),
+                    box[2] - box[0],
+                    box[3] - box[1],
+                    linewidth=1.5,
+                    facecolor="none",
+                    edgecolor="skyblue",
+                )
+
+            plt.gca().add_patch(rect)

@@ -75,7 +75,7 @@ def albu_to_pascal(boxes, h, w):
     boxes[:, 2] = boxes[:, 2] * w
     boxes[:, 3] = boxes[:, 3] * h
 
-    return boxes.astype(int)
+    return np.round(boxes).astype(int)
 
 
 def pascal_to_coco(boxes):
@@ -137,33 +137,12 @@ def yolo_to_pascal(boxes, h=None, w=None):
         boxes[:, 2] = boxes[:, 2] * w
         boxes[:, 3] = boxes[:, 3] * h
 
-        boxes = boxes.astype(int)
+        boxes = np.round(boxes).astype(int)
 
     return boxes
 
 
-def yolo_to_volumes(boxes, h, w):
-    """
-    xc, yc, w, h -> Format supported by the app.
-
-    Args:
-        boxes (np array): Boxes in the yolo format.
-        h (int): Image height.
-        w (int): Image width.
-
-    Returns:
-        list [n x 3 x 2]: Volumes in the format of the app.
-    """
-    boxes = yolo_to_pascal(boxes, h, w)
-
-    volumes = []
-    for box in boxes:
-        volumes.append([[int(box[1]), int(box[3])], [None, None], [int(box[0]), int(box[2])]])
-
-    return volumes
-
-
-def expand_boxes(boxes, r=1):
+def expand_boxes(boxes, r=1, min_size=0, max_size=None):
     """
     Expands boxes. Handled in the coco format which is perhaps to the easiest.
 
@@ -174,26 +153,31 @@ def expand_boxes(boxes, r=1):
     Returns:
         Boxes: Expanded boxes.
     """
+    if isinstance(boxes, list):
+        return boxes
+
     shape = boxes.shape
     boxes = boxes["yolo"]
-    boxes[:, 2] = np.clip(boxes[:, 2] * r, 0, 0.75)
-    boxes[:, 3] = np.clip(boxes[:, 3] * r, 0, 0.75)
+
+    boxes[:, 2] = np.clip(boxes[:, 2] * r, min_size / shape[1], max_size / shape[1])
+    boxes[:, 3] = np.clip(boxes[:, 3] * r, min_size / shape[0], max_size / shape[0])
+
 
     for b in boxes:  # shift boxes out of bounds
         if b[0] - b[2] / 2 < 0:
-            b[2] += b[0] - b[2] / 2
+#             b[2] += b[0] - b[2] / 2
             b[0] = b[2] / 2
 
         if b[0] + b[2] / 2 > 1:
-            b[2] -= b[0] + b[2] / 2 - 1
+#             b[2] -= b[0] + b[2] / 2 - 1
             b[0] = 1 - (b[2] / 2)
 
         if b[1] - b[3] / 2 < 0:
-            b[3] += b[1] - b[3] / 2
+#             b[3] += b[1] - b[3] / 2
             b[1] = b[3] / 2
 
         if b[1] + b[3] / 2 > 1:
-            b[3] -= b[1] + b[3] / 2 - 1
+#             b[3] -= b[1] + b[3] / 2 - 1
             b[1] = 1 - (b[3] / 2)
 
     return Boxes(boxes, shape, bbox_format="yolo")

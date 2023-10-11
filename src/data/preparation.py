@@ -90,6 +90,18 @@ def prepare_seg_data(data_path="", use_3d=False):
     return df_seg
 
 
+def prepare_extrav_data(data_path):
+    df = pd.DataFrame({"path": glob.glob(data_path + "crops_extrav/*.npy")})
+    
+    df['patient_id'] = df['path'].apply(lambda x: x.split('/')[-1].split('_')[0]).astype(int)
+    df['series'] = df['path'].apply(lambda x: x.split('/')[-1].split('_')[1]).astype(int)
+    df['crop_id'] = df['path'].apply(lambda x: x.split('/')[-1].split('_')[2]).astype(int)
+    df['target'] = df['path'].apply(lambda x: int("pred" not in x))
+    
+    df = df.sort_values(['patient_id', 'series', 'crop_id'], ignore_index=True)
+    return df
+
+
 def load_segmentation(path):
     img = nibabel.load(path).get_fdata()
     img = np.transpose(img, [1, 0, 2])

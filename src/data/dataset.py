@@ -29,11 +29,16 @@ def to_one_hot_patient(y):
     return torch.cat(new_y, -1)
 
 
-def get_frames(frame, n_frames, frames_c, stride=1, max_frame=100):
+def get_frames(frame, n_frames, frames_c, stride=1, max_frame=100, extrav=False):
     if stride == -1:
-        frames = np.linspace(
-            0, max_frame, n_frames + 4, endpoint=True, dtype=int
-        )[2: -2]
+        if extrav:
+            frames = np.linspace(
+                1, max_frame - 1, n_frames, endpoint=True, dtype=int
+            )
+        else:
+            frames = np.linspace(
+                0, max_frame, n_frames + 4, endpoint=True, dtype=int
+            )[2: -2]
         
     else:
         frames = np.arange(n_frames) * stride
@@ -402,6 +407,123 @@ class AbdominalCropDataset(Dataset):
                     1, self.n_frames, mask.size(1), mask.size(2)
                 ).transpose(0, 1)
                 image = torch.cat([image, mask], 1)
+
+        return image, y_img, 0
+
+    
+class AbdominalExtravDataset(Dataset):
+    def __init__(
+        self,
+        df,
+        transforms=None,
+        frames_chanel=0,
+        n_frames=0,
+        stride=1,
+        train=False,
+        use_soft_target=False,
+        use_mask=False,
+        df_series=None
+    ):
+        """
+        Constructor.
+
+        Args:
+            df_patient (pandas DataFrame): Metadata containing information about the dataset.
+            df_img (pandas DataFrame): Metadata containing information about the dataset.
+            transforms (albu transforms, optional): Transforms to apply to images and masks. Defaults to None.
+        """
+        self.df = df
+        self.targets = self.df["target"].values
+
+        self.transforms = transforms
+        self.frames_chanel = frames_chanel
+        self.n_frames = n_frames
+        self.stride = stride
+
+        self.train = train
+        self.use_mask = False
+
+    def __len__(self):
+        """
+        Get the length of the dataset.
+
+        Returns:
+            int: Length of the dataset.
+        """
+        return len(self.df)
+    
+    def __getitem__(self, idx):
+        """
+        Item accessor.
+
+        Args:
+            idx (int): Index.
+
+        Returns:
+            torch.Tensor: Image as a tensor of shape [C, H, W].
+            torch.Tensor: Label as a tensor of shape [5].
+            torch.Tensor: Aux label as a tensor of shape [5].
+        """
+        img = np.load(self.df['path'].values[idx])
+        
+        if img.shape[-1] == 3:
+            img = img[..., 0]
+                
+        if self.use_mask:
+            classes = ["", 'liver', 'spleen', 'kidney']
+            mask = (mask == classes.index(organ)).astype(int)
+            
+#         return 0, 0, 0
+        
+        # Pick frame(s)
+        if self.train:
+            ps = np.exp(-((np.arange(len(img)) - len(img) // 2) / (0.15 * len(img))) ** 2)  # gaussian
+            m = 5 + self.stride * (self.n_frames - 1) + self.frames_chanel
+            ps[:m] = 0  # Stay in bounds
+            ps[-m:] = 0  # Stay in bounds
+            if ps.max():
+                frame = np.random.choice(len(img), p=ps / ps.sum())
+            else:
+                frame = len(img) // 2 + np.random.choice([-2, -1, 0, 1, 2])
+        else:
+            frame = len(img) // 2  # center
+
+#         print(img.shape, frame)
+        frames = get_frames(
+            frame,
+            self.n_frames,
+            self.frames_chanel,
+            stride=self.stride,
+            max_frame=len(img) - 1,
+            extrav=True
+        )
+#         print(frames)
+        
+        # Load
+        try:
+            image = img[np.array(frames)].transpose(1, 2, 0)
+        except ValueError:
+            print(img.shape, frames)
+            raise ValueError
+        image = image.astype(np.float32) / 255.0
+        
+        # Augment
+        if self.transforms:
+            transformed = self.transforms(image=image)
+            image = transformed["image"]
+    
+        y_img = torch.tensor([self.targets[idx]]).float()
+
+        # Reshape
+        if self.n_frames > 1:
+            if self.frames_chanel:
+                image = image.view(
+                    self.n_frames, 3, image.size(1), image.size(2)
+                )  # .transpose(0, 1)
+            else:
+                image = image.view(
+                    1, self.n_frames, image.size(1), image.size(2)
+                ).repeat(3, 1, 1, 1).transpose(0, 1)
 
         return image, y_img, 0
 
@@ -774,7 +896,7 @@ class Seg3dDataset(Dataset):
 
     
 class PatientFeatureDataset(Dataset):
-    def __init__(self, df_patient, df_img, exp_folders, max_len=None, restrict=False, resize=None, use_other_series=False):
+    def __init__(self, df_patient, df_img, exp_folders, max_len=None, restrict=False, resize=None, use_other_series=False, refine_target=False):
         self.df_patient = df_patient
         self.fts, self.crop_fts = self.retrieve_features(df_img, exp_folders)
         self.ids = list(self.fts.keys())
@@ -782,8 +904,15 @@ class PatientFeatureDataset(Dataset):
         self.restrict = restrict
         self.resize = resize
         self.use_other_series = use_other_series
+        self.refine_target = refine_target
+        
+        if self.refine_target:
+            self.series_tgts = df_img[
+                ['patient_id', 'series', "extravasation_injury", "bowel_injury"]
+            ].groupby(['patient_id', 'series']).max().to_dict()
 
     def retrieve_features(self, df, exp_folders):
+        conf_extrav = None
         features_dict = {}
         crop_features_dict = {}
         for fold in sorted(df['fold'].unique()):
@@ -801,8 +930,8 @@ class PatientFeatureDataset(Dataset):
                     pass
                 elif mode == "yolox":
                     file = sorted(glob.glob(exp_folder + ".npy"))[fold]
-                    conf = np.load(file)
-                    fts.append(conf[:, None])
+                    conf_extrav = np.load(file)
+#                     fts.append(conf[:, None])
                 elif mode == "bowel_extrav":
                     ft = np.load(exp_folder + f"pred_val_{fold}.npy")
                     assert ft.shape[-1] == 2
@@ -814,6 +943,10 @@ class PatientFeatureDataset(Dataset):
                     fts.append(ft)
                 else:  # proba
                     ft = np.load(exp_folder + f"pred_val_{fold}.npy")
+                
+                    if (conf_extrav is not None) and (exp_folder == "../logs/2023-09-20/36_r/"):
+#                         print('Use yoloX')
+                        ft[:, 1] = (conf_extrav + ft[:, 1]) / 2
 #                     ft = ft[:len(df_val)]
                     fts.append(ft)
 
@@ -969,6 +1102,13 @@ class PatientFeatureDataset(Dataset):
             crop_fts = 0
         
         y = self.df_patient[self.df_patient['patient_id'] == patient_series[0]][PATIENT_TARGETS].values[0]
+        
+#         print(y)
+        if self.refine_target:
+            y[0] = self.series_tgts["bowel_injury"][patient_series]
+            y[1] = self.series_tgts["extravasation_injury"][patient_series]
+#         print(y)
+        
         y = torch.from_numpy(y).float()  # bowel, extravasion, kidney, liver, spleen
 
         return {"x": fts, "ft": crop_fts, "other_x": other_fts}, y, 0

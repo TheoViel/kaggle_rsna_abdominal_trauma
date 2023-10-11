@@ -38,6 +38,7 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
         resize=config.resize,
         restrict=config.restrict,
         use_other_series=config.use_other_series,
+        refine_target=config.refine_target,
     )
 
     val_dataset = PatientFeatureDataset(

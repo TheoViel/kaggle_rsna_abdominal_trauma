@@ -266,6 +266,9 @@ def fit(
                                 roc_auc_score(val_dataset.img_targets[:, i], preds[:, i])
                                 for i in range(preds.shape[1])
                             ])
+                    elif preds.shape[1] == 1:
+#                         print(preds)
+                        auc = roc_auc_score(val_dataset.targets.flatten(), preds.flatten())
                     elif preds.shape[1] == 3:  # Organ level kidney / liver / spleen
                         auc = np.mean([
                             roc_auc_score(val_dataset.targets == i, preds[:, i])
@@ -275,8 +278,17 @@ def fit(
                         if isinstance(val_dataset, PatientFeatureDataset):
                             rsna_losses, rsna_loss = rsna_score_study(preds, val_dataset)
                         elif isinstance(val_dataset, AbdominalDataset):
-                            rsna_losses, rsna_loss = rsna_score_organs(preds, val_dataset)
-                            auc = roc_auc_score_organs(preds, val_dataset)
+                            try:
+                                rsna_losses, rsna_loss = rsna_score_organs(preds, val_dataset)
+                            except:
+                                rsna_loss = 0
+                            try:
+                                auc = roc_auc_score_organs(preds, val_dataset)
+                            except:
+                                auc = 0
+                            
+                        else:
+                            raise NotImplementedError
 
                     s = f"Epoch {epoch:02d}/{epochs:02d} (step {step_:04d}) \t"
                     s = s + f"lr={lr:.1e} \t t={dt:.0f}s \t loss={avg_loss:.3f}"

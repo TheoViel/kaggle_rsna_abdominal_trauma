@@ -44,7 +44,7 @@ class PatientLoss(nn.Module):
     """
     Cross-entropy loss with label smoothing.
     """
-    def __init__(self, eps=0.0, weighted=True, use_any=True):
+    def __init__(self, eps=0.0, weighted=True, use_any=True, accentuate=False):
         """
         Constructor.
         Args:
@@ -57,6 +57,7 @@ class PatientLoss(nn.Module):
         self.bce_nologits = nn.BCELoss(reduction="none")
         self.weighted = weighted
         self.use_any = use_any
+        self.accentuate = accentuate
 
     def _forward_soft(self, inputs, targets):
         """
@@ -70,29 +71,40 @@ class PatientLoss(nn.Module):
         assert (targets.size(1) == 11) and (len(targets.size()) == 2), "Wrong target size"
         assert (inputs.size(1) == 11) and (len(inputs.size()) == 2), "Wrong input size"
         
+        if self.accentuate:
+            w1 = 1  # 3
+            w2 = 5 # 11
+            w3 = 2  # 3
+            w_any = 11
+        else:
+            w1 = 1
+            w2 = 5
+            w3 = 2
+            w_any = 5
+
         bowel_pred =  inputs[:, 0]
         bowel_target =  targets[:, 0]
-        bowel_w = bowel_target + 1 if self.weighted else 1  # 1, 2
+        bowel_w = bowel_target + w1 if self.weighted else 1  # 1, 2
         bowel_loss = self.bce(bowel_pred, bowel_target) * bowel_w
         
         extravasion_pred =  inputs[:, 1]
         extravasion_target =  targets[:, 1]
-        extravasion_w = (extravasion_target * 5) + 1 if self.weighted else 1  # 1, 6
+        extravasion_w = (extravasion_target * w2) + 1 if self.weighted else 1  # 1, 6
         extravasion_loss = self.bce(extravasion_pred, extravasion_target) * extravasion_w
         
         kidney_pred =  inputs[:, 2:5]
         kidney_target =  targets[:, 2:5]
-        kidney_w = torch.pow(2, kidney_target.argmax(-1)) if self.weighted else 1 # 1, 2, 4
+        kidney_w = torch.pow(w3, kidney_target.argmax(-1)) if self.weighted else 1 # 1, 2, 4
         kidney_loss = self.ce(kidney_pred, kidney_target) * kidney_w
 
         liver_pred =  inputs[:, 5:8]
         liver_target =  targets[:, 5:8]
-        liver_w = torch.pow(2, liver_target.argmax(-1)) if self.weighted else 1  # 1, 2, 4
+        liver_w = torch.pow(w3, liver_target.argmax(-1)) if self.weighted else 1  # 1, 2, 4
         liver_loss = self.ce(liver_pred, liver_target) * liver_w
         
         spleen_pred =  inputs[:, 8:11]
         spleen_target =  targets[:, 8:11]
-        spleen_w = torch.pow(2, spleen_target.argmax(-1)) if self.weighted else 1  # 1, 2, 4
+        spleen_w = torch.pow(w3, spleen_target.argmax(-1)) if self.weighted else 1  # 1, 2, 4
         spleen_loss = self.ce(spleen_pred, spleen_target) * spleen_w
 
         if self.use_any:
@@ -107,7 +119,7 @@ class PatientLoss(nn.Module):
                 ]
             ).amax(0)
 
-            any_w = (any_target * 5) + 1  if self.weighted else 1  # 1, 6
+            any_w = (any_target * w_any) + 1  if self.weighted else 1  # 1, 6
     #         any_loss = self.bce_nologits(any_pred, any_target) * any_w
             any_loss = - any_w * (any_target * torch.log(any_pred) + (1 - any_target) * torch.log(1 - any_pred))
 
@@ -136,29 +148,40 @@ class PatientLoss(nn.Module):
         assert (targets.size(1) == 5) and (len(targets.size()) == 2), "Wrong target size"
         assert (inputs.size(1) == 11) and (len(inputs.size()) == 2), "Wrong input size"
         
+#         if self.accentuate:
+#             w1 = 1  # 3
+#             w2 = 5 # 11
+#             w3 = 2  # 3
+#             w_any = 11
+#         else:
+        w1 = 1
+        w2 = 5
+        w3 = 2
+        w_any = 5
+        
         bowel_pred =  inputs[:, 0]
         bowel_target =  targets[:, 0]
-        bowel_w = bowel_target + 1 if self.weighted else 1  # 1, 2
+        bowel_w = bowel_target + w1 if self.weighted else 1  # 1, 2
         bowel_loss = self.bce(bowel_pred, bowel_target) * bowel_w
         
         extravasion_pred =  inputs[:, 1]
         extravasion_target =  targets[:, 1]
-        extravasion_w = (extravasion_target * 5) + 1 if self.weighted else 1  # 1, 6
+        extravasion_w = (extravasion_target * w2) + 1 if self.weighted else 1  # 1, 6
         extravasion_loss = self.bce(extravasion_pred, extravasion_target) * extravasion_w
         
         kidney_pred =  inputs[:, 2:5]
         kidney_target =  targets[:, 2]
-        kidney_w = torch.pow(2, kidney_target) if self.weighted else 1 # 1, 2, 4
+        kidney_w = torch.pow(w3, kidney_target) if self.weighted else 1 # 1, 2, 4
         kidney_loss = self.ce(kidney_pred, kidney_target) * kidney_w
 
         liver_pred =  inputs[:, 5:8]
         liver_target =  targets[:, 3]
-        liver_w = torch.pow(2, liver_target) if self.weighted else 1  # 1, 2, 4
+        liver_w = torch.pow(w3, liver_target) if self.weighted else 1  # 1, 2, 4
         liver_loss = self.ce(liver_pred, liver_target) * liver_w
         
         spleen_pred =  inputs[:, 8:11]
         spleen_target =  targets[:, 4]
-        spleen_w = torch.pow(2, spleen_target) if self.weighted else 1  # 1, 2, 4
+        spleen_w = torch.pow(w3, spleen_target) if self.weighted else 1  # 1, 2, 4
         spleen_loss = self.ce(spleen_pred, spleen_target) * spleen_w
 
         if self.use_any:
@@ -173,13 +196,20 @@ class PatientLoss(nn.Module):
                 ]
             ).amax(0)
 
-            any_w = (any_target * 5) + 1  if self.weighted else 1  # 1, 6
+            any_w = (any_target * w_any) + 1  if self.weighted else 1  # 1, 6
     #         any_loss = self.bce_nologits(any_pred, any_target) * any_w
             any_loss = - any_w * (any_target * torch.log(any_pred) + (1 - any_target) * torch.log(1 - any_pred))
 
-            loss = (
-                bowel_loss + extravasion_loss + kidney_loss + liver_loss + spleen_loss + any_loss
-            ) * 1 / 6
+        #             w1, w2, w3, w4, w5, w6 = 1, 1, 2, 2, 2, 1
+            if self.accentuate:
+                w1, w2, w3, w4, w5, w6 = 1, 2, 1, 1, 1, 1
+                loss = (
+                    w1 * bowel_loss + w2 * extravasion_loss + w3 * kidney_loss + w4 * liver_loss + w5 * spleen_loss + w6 * any_loss
+                ) * 1 / (w1 + w2 + w3 + w4 + w5 + w6)
+            else:
+                loss = (
+                    bowel_loss + extravasion_loss + kidney_loss + liver_loss + spleen_loss + any_loss
+                ) * 1 / 6
         else:
             loss = (
                 bowel_loss + extravasion_loss + kidney_loss + liver_loss + spleen_loss
@@ -229,16 +259,6 @@ class ImageLoss(nn.Module):
         return loss
 
 
-WEIGHTS = {
-    'bowel_injury': {0: 1, 1: 2},
-    'extravasation_injury': {0: 1, 1: 6},
-    'kidney': {0: 1, 1: 2, 2: 4},
-    'liver': {0: 1, 1: 2, 2: 4},
-    'spleen': {0: 1, 1: 2, 2: 4},
-    'any_injury': {0: 1, 1: 6},
-}
-
-
 class AbdomenLoss(nn.Module):
     """
     Loss wrapper for the problem.
@@ -284,7 +304,8 @@ class AbdomenLoss(nn.Module):
             self.loss = PatientLoss(
                 eps=self.eps,
                 weighted=config.get('weighted', False),
-                use_any=config.get('use_any', False)
+                use_any=config.get('use_any', False),
+                accentuate=config.get('accentuate', False),
             )
         else:
             raise NotImplementedError
@@ -297,7 +318,8 @@ class AbdomenLoss(nn.Module):
             self.loss_aux = PatientLoss(
                 eps=self.eps,
                 weighted=config.get('weighted', False),
-                use_any=config.get('use_any', False)
+                use_any=config.get('use_any', False),
+                accentuate=config.get('accentuate', False),
             )
         else:
             raise NotImplementedError
