@@ -76,3 +76,37 @@ class SequenceLayer(nn.Module):
         x = self.conv(x.transpose(1, 2).contiguous()).transpose(2, 1).contiguous()
         x = x.flatten(0, 1)
         return x
+
+    
+class Attention(nn.Module):
+    def __init__(self, hidden_dim, attention_dim=None):
+        super().__init__()
+ 
+        self.hidden_dim = hidden_dim
+        self.attention_dim = attention_dim
+        if self.attention_dim is None:
+            self.attention_dim = self.hidden_dim
+        # W * x + b
+        self.proj_w = nn.Linear(self.hidden_dim, self.attention_dim, bias=True)
+        # v.T
+        self.proj_v = nn.Linear(self.attention_dim, 1, bias=False)
+ 
+    def forward(self, x):
+        """
+        :param x: seq_len, batch_size, hidden_dim
+        :return: batch_size * seq_len, batch_size * hidden_dim
+        """
+        # print(f"x shape:{x.shape}")
+        batch_size, seq_len, _ = x.size()
+        # flat_inputs = x.reshape(-1, self.hidden_dim) # (batch_size*seq_len, hidden_dim)
+        # print(f"flat_inputs shape:{flat_inputs.shape}")
+        
+        H = torch.tanh(self.proj_w(x)) # (batch_size, seq_len, hidden_dim)
+        # print(f"H shape:{H.shape}")
+        
+        att_scores = torch.softmax(self.proj_v(H),axis=1) # (batch_size, seq_len)
+        # print(f"att_scores shape:{att_scores.shape}")
+        
+        attn_x = (x * att_scores).sum(1) # (batch_size, hidden_dim)
+        # print(f"attn_x shape:{attn_x.shape}")
+        return attn_x

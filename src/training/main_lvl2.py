@@ -176,7 +176,7 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
         print()
         for k, v in losses.items():
             print(f"- {k.split('_')[0][:8]} loss\t: {v:.3f}")
-        print(f'\n -> CV Score : {avg_loss :.3f}')
+        print(f'\n -> CV Score : {avg_loss :.4f}')
 
         if run is not None:
             run["global/logs"].upload(log_folder + "logs.txt")

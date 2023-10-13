@@ -11,7 +11,7 @@ from model_zoo.gem import GeM
 from util.torch import load_model_weights
 
 from transformers import AutoConfig
-from model_zoo.seq import DebertaV2Output, SequenceLayer
+from model_zoo.seq import DebertaV2Output, SequenceLayer, Attention
 from transformers.models.deberta_v2.modeling_deberta_v2 import DebertaV2Encoder
 
 warnings.simplefilter(action="ignore", category=UserWarning)
@@ -138,23 +138,13 @@ class ClsModel(nn.Module):
         
         if head_3d == "lstm":
             self.lstm = nn.LSTM(self.nb_ft, self.nb_ft // 4, batch_first=True, bidirectional=True)
-
+        elif head_3d == "lstm_att":
+            self.lstm = nn.LSTM(self.nb_ft, self.nb_ft // 2, batch_first=True, bidirectional=True)
+            self.att = Attention(self.nb_ft, self.nb_ft)
         elif head_3d == "transfo":
-            name = "microsoft/deberta-v3-base"
-            config = AutoConfig.from_pretrained(name, output_hidden_states=True)
-            config.hidden_size = self.nb_ft
-            config.intermediate_size = self.nb_ft
-            config.output_size = self.nb_ft // 2
-            config.num_hidden_layers = 1
-            config.num_attention_heads = 8
-            config.attention_probs_dropout_prob = 0.1
-            config.hidden_dropout_prob = 0.1
-            config.hidden_act = nn.Mish()
-            config.max_relative_positions = n_frames
-            config.position_buckets = n_frames
-            config.skip_output = True
-            self.transfo = DebertaV2Encoder(config)
-            self.transfo.layer[0].output = DebertaV2Output(config)
+            self.transfo = nn.TransformerEncoderLayer(
+                self.nb_ft, 8, dim_feedforward=self.nb_ft * 2, dropout=0.1, activation=nn.Mish(), batch_first=True
+            )
     
         elif head_3d == "cnn":
             num_layers = 1 # if n_frames == 3 else 2
@@ -301,14 +291,12 @@ class ClsModel(nn.Module):
             mean = x.mean(1)
             max_ = x.amax(1)
             x = torch.cat([mean, max_], -1)
+        elif self.head_3d == "lstm_att":
+            x, _ = self.lstm(x)
+            x = self.att(x) 
+            
         elif self.head_3d == "transfo":
-            x = self.transfo(
-                x,
-                torch.ones((x.size(0), x.size(1))).to(x.device).bool()
-            ).last_hidden_state
-            mean = x.mean(1)
-            max_ = x.amax(1)
-            x = torch.cat([mean, max_], -1)
+            x = self.transfo(x).mean(1)
         elif self.head_3d == "cnn":
             if len(x.shape) == 5:  # bs x n_frames x c x h x w -> bs * n_frames x c x h x w
                 x = x.flatten(0, 1)
