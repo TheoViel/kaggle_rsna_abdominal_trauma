@@ -148,14 +148,11 @@ def kfold_inference(
             drop_rate=config.drop_rate,
             drop_path_rate=config.drop_path_rate,
             use_gem=config.use_gem,
-            replace_pad_conv=config.replace_pad_conv,
             num_classes=config.num_classes,
             num_classes_aux=config.num_classes_aux,
             n_channels=config.n_channels,
             reduce_stride=config.reduce_stride,
-            increase_stride=config.increase_stride
-            if hasattr(config, "increase_stride")
-            else False,
+            increase_stride=config.increase_stride if hasattr(config, "increase_stride") else False,
             pretrained=False,
         )
         model = model.cuda().eval()
@@ -173,32 +170,27 @@ def kfold_inference(
 
         df_val = df_img[df_img["fold"] == fold].reset_index(
             drop=True
-        )  # if "fold" in df_img.columns else df_img
+        )
 
         transforms = get_transfos(
             augment=False,
-            resize=config.resize,  # None if config.use_mask else
+            resize=config.resize,
             crop=config.crop,
         )
 
         dataset = AbdominalInfDataset(
             df_val,
             transforms=transforms,
-            frames_chanel=config.frames_chanel
-            if hasattr(config, "frames_chanel")
-            else 0,
+            frames_chanel=config.frames_chanel if hasattr(config, "frames_chanel") else 0,
             n_frames=config.n_frames if hasattr(config, "n_frames") else 1,
             stride=config.stride if hasattr(config, "stride") else 1,
-            use_crops=config.use_crops if hasattr(config, "use_crops") else False,
         )
 
         pred, fts = predict_distributed(
             model,
             dataset,
             config.loss_config,
-            batch_size=config.data_config["val_bs"]
-            if batch_size is None
-            else batch_size,
+            batch_size=config.data_config["val_bs"] if batch_size is None else batch_size,
             use_fp16=use_fp16,
             num_workers=num_workers,
             distributed=True,

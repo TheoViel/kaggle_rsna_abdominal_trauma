@@ -4,9 +4,9 @@ import torch
 import warnings
 import argparse
 
-from data.preparation import prepare_seg_data
+from data.preparation import prepare_seg_data, prepare_data
 from util.torch import init_distributed
-from util.logger import create_logger, save_config, prepare_log_folder
+from util.logger import create_logger, save_config, prepare_log_folder, get_last_log_folder
 
 from params import DATA_PATH
 
@@ -96,7 +96,7 @@ class Config:
     pretrained_weights = None
     use_3d = False
 
-    num_classes = 4
+    num_classes = 5
     num_classes_aux = 0
     drop_rate = 0
     drop_path_rate = 0
@@ -146,7 +146,7 @@ class Config:
     verbose_eval = 50
 
     fullfit = True
-    n_fullfit = 1
+    n_fullfit = 0
 
     pretrain = False
 
@@ -175,6 +175,9 @@ if __name__ == "__main__":
         if config.local_rank == 0:
             log_folder = prepare_log_folder(LOG_PATH)
             print(f"\n -> Logging results to {log_folder}\n")
+        else:
+            time.sleep(2)
+            log_folder = get_last_log_folder(LOG_PATH)
 
     if args.model:
         config.name = args.model
@@ -192,10 +195,7 @@ if __name__ == "__main__":
         config.data_config["batch_size"] = args.batch_size
         config.data_config["val_bs"] = args.batch_size
 
-    run = None
     if config.local_rank == 0:
-        #         run = init_neptune(config, log_folder)
-
         if args.fold > -1:
             config.selected_folds = [args.fold]
             create_logger(directory=log_folder, name=f"logs_{args.fold}.txt")
@@ -203,9 +203,6 @@ if __name__ == "__main__":
             create_logger(directory=log_folder, name="logs.txt")
 
         save_config(config, log_folder + "config.json")
-        if run is not None:
-            run["global/config"].upload(log_folder + "config.json")
-
     if config.local_rank == 0:
         print("Device :", torch.cuda.get_device_name(0), "\n")
 
@@ -217,9 +214,27 @@ if __name__ == "__main__":
         print("\n -> Training\n")
 
     df = prepare_seg_data(data_path=DATA_PATH)
+#     df = df.sample(100000).reset_index(drop=True)
 
     from training.main_seg import k_fold
-    k_fold(config, df, log_folder=log_folder, run=run)
+    k_fold(config, df, log_folder=log_folder)
+
+    if len(config.selected_folds) == 4:
+        if config.local_rank == 0:
+            print("\n -> Extracting features\n")
+        from inference.extract_features import kfold_inference
+
+        df_patient, df_img = prepare_data(DATA_PATH)
+
+        kfold_inference(
+            df_patient,
+            df_img,
+            log_folder,
+            use_fp16=config.use_fp16,
+            save=True,
+            distributed=True,
+            config=config,
+        )
 
     if config.local_rank == 0:
         print("\nDone !")

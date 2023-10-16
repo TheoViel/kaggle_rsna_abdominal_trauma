@@ -70,8 +70,10 @@ It is trained separately. Its role is to aggregate information from previous mod
 - Clone the repository
 
 - Download the data in the `input` folder:
-  - [Competition data](https://www.kaggle.com/competitions/google-research-identify-contrails-reduce-global-warming/data). You can skip the dicoms and use the preprocessed data.
-  - [Preprocessed data](https://www.kaggle.com/competitions/rsna-2023-abdominal-trauma-detection/discussion/427427)
+  - [Competition data](https://www.kaggle.com/competitions/rsna-2023-abdominal-trauma-detection/data)
+    - If you download the other next datasets, only the csv files are useful.
+  - [Preprocessed images](https://www.kaggle.com/competitions/rsna-2023-abdominal-trauma-detection/discussion/427427)
+  - [Preprocessed segs & dataframes](https://www.kaggle.com/datasets/theoviel/rsna-abdominal-prepro-data/)
 
 
 - Setup the environment :
@@ -85,21 +87,19 @@ It is trained separately. Its role is to aggregate information from previous mod
 
 #### Preparation
 
-Preparation is done is the `notebooks/Preparation.ipynb` notebook. This will save the frame 4 in png using the false_color scheme in png for faster 2D training.
+Most of the preprocessed data is already shared. However running the notebook `notebooks/Segmentation_3d.ipynb` is required since masks were too big to upload to kaggle.
+
 
 #### Training
 
-- `bash train.sh` will train the 2D models. Downloading the external data is required.
-- `bash train_end2end.sh` will train the 2D model and finetune it on 2.5D. 
 
-#### Validation
+- `bash seg_cls.sh` will train the 2D organ classification model. This is optional as I provide the segmentation metadata.
+- `bash train.sh` will train a `maxvit_tiny_tf_512` 2D classification model.
 
-Validation is done is the `notebooks/Validation.ipynb` notebook. Make sure to replace the `EXP_FOLDER` vairables with your models
+- `bash seg.sh` will train the 3D organ segmentation model.
+- `bash crop_train.sh` will train the crop classification model
 
-#### Inference
-
-Inference is done on Kaggle, notebook is [here](https://www.kaggle.com/code/theoviel/contrails-inference-comb).
-
+- `notebooks/Training_Lvl2.ipynb` is used for training an validating RNN models. Make sure to update the folders in the config with yours.
 
 ### Code structure
 
@@ -109,33 +109,40 @@ The structure is the following :
 ```
 src
 ├── data
-│   ├── dataset.py              # Dataset class
+│   ├── dataset.py              # Dataset classes
 │   ├── loader.py               # Dataloader
 │   ├── preparation.py          # Data preparation
-│   ├── shape_descript.py       # Shape descriptors aux target
 │   └── transforms.py           # Augmentations
+├── inference                   # Inference utils
+│   ├── crop.py                 # Crop from 3D masks
+│   ├── extract_features.py     # Extract features from 2D models
+│   ├── lvl1.py                 # 2D models inference utils for Kaggle
+│   ├── lvl2.py                 # RNN models inference utils for Kaggle
+│   └── processing.py           # Data processing utls for kaggle
 ├── model_zoo 
-│   ├── aspp.py                 # ASPP center block
-│   ├── models.py               # Segmentation model wrapper
-│   ├── transformer.py          # Transformer temporal mixer
-│   └── unet.py                 # Customized U-Net
+│   ├── conv3d_same.py          # Layer for 2d to 3d conversion
+│   ├── layers.py               # Custom layers
+│   ├── models_lvl2.py          # RNN models
+│   ├── models_seg.py           # Segmentation models
+│   └── models.py               # Classification models
 ├── training                        
 │   ├── losses.py               # Losses
-│   ├── lovasz.py               # Lovasz loss
+│   ├── main_crop.py            # k-fold and train function for crop models
+│   ├── main_lvl2.py            # k-fold and train function for RNN models
+│   ├── main_seg.py             # k-fold and train function for segmentation models
 │   ├── main.py                 # k-fold and train function
-│   ├── meter.py                # Segmentation meter
 │   ├── mix.py                  # Cutmix and Mixup
 │   ├── optim.py                # Optimizers
-│   └── train.py                # Torch fit and eval functions
+│   ├── train_seg.py            # Torch fit and eval functions for segmentation
+│   └── train.py                # Torch fit and eval functions for classification
 ├── util
 │   ├── logger.py               # Logging utils
 │   ├── metrics.py              # Metrics for the competition
 │   ├── plots.py                # Plotting utils
-│   ├── rle.py                  # RLE encoding
 │   └── torch.py                # Torch utils
-├── inference_main.py           # Inference functions
-├── main_end2end_convnext.py    # Pretrains and trains a convnext-nano 2.5D model
-├── main_end2end_v2s.py         # Pretrains and trains a v2-s 2.5D model
-├── main.py                     # Trains a v2-s 2D model on external data
+├── main_crop.py                # Trains a crop classification model
+├── main_seg_cls.py             # Trains an organ classifcation model
+├── main_seg.py                 # Trains a 3D segmentation model
+├── main.py                     # Trains a 2D injury classification model
 └── params.py                   # Main parameters
 ``` 

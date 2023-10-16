@@ -109,7 +109,6 @@ class Config:
     drop_path_rate = 0.05 if "convnext" in name else 0.2
     n_channels = 3
     reduce_stride = False
-    replace_pad_conv = False
     use_gem = True
     head_3d = "lstm" if n_frames > 1 else ""
 
@@ -124,14 +123,13 @@ class Config:
         "name_aux": "patient",
         "smoothing_aux": 0.0,
         "activation_aux": "",
-        "ousm_k": 0,  # todo ?
     }
 
     data_config = {
         "batch_size": 32 if n_frames <= 1 else 8,
         "val_bs": 32 if n_frames <= 1 else 16,
         "mix": "cutmix",
-        "mix_proba": 1.0,
+        "mix_proba": 0.5,
         "sched": False,
         "mix_alpha": 4,
         "additive_mix": False,
@@ -203,7 +201,7 @@ if __name__ == "__main__":
         config.data_config["batch_size"] = args.batch_size
         config.data_config["val_bs"] = args.batch_size
 
-    df_patient, df_img = prepare_data(DATA_PATH, with_crops=True)
+    df_patient, df_img = prepare_data(DATA_PATH)
 
     run = None
     if config.local_rank == 0:

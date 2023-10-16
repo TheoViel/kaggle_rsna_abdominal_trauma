@@ -82,9 +82,6 @@ class Config:
     pretrain = False
 
     # Data
-    resize = (384, 384)
-    crop = True
-    aug_strength = 1
     for_classification = False
     use_3d = True
 
@@ -94,10 +91,10 @@ class Config:
     selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "resnet18d"  # "resnet18d"
+    name = "resnet18d"
     decoder_name = "Unet"
-    pretrained_weights = None  # "../logs/2023-09-24/21/resnet18d_0.pt"
-    increase_stride = True  # True
+    pretrained_weights = None
+    increase_stride = True
     use_cls = False
 
     num_classes = 5
@@ -137,7 +134,7 @@ class Config:
         "weight_decay": 0.0,
     }
 
-    epochs = 10 if pretrain else 100
+    epochs = 100
 
     use_fp16 = True
     verbose = 1
@@ -188,19 +185,13 @@ if __name__ == "__main__":
         config.data_config["batch_size"] = args.batch_size
         config.data_config["val_bs"] = args.batch_size
 
-    run = None
     if config.local_rank == 0:
-        #         run = init_neptune(config, log_folder)
-
         if args.fold > -1:
             config.selected_folds = [args.fold]
             create_logger(directory=log_folder, name=f"logs_{args.fold}.txt")
         else:
             create_logger(directory=log_folder, name="logs.txt")
-
         save_config(config, log_folder + "config.json")
-        if run is not None:
-            run["global/config"].upload(log_folder + "config.json")
 
     if config.local_rank == 0:
         print("Device :", torch.cuda.get_device_name(0), "\n")
@@ -212,14 +203,10 @@ if __name__ == "__main__":
         )
         print("\n -> Training\n")
 
-    df_extra = None
-    if config.pretrain:
-        df_extra = pd.read_csv(DATA_PATH + "df_seg_3d_extra.csv")
-
     df = prepare_seg_data(data_path=DATA_PATH, use_3d=config.use_3d)
 
     from training.main_seg import k_fold
-    k_fold(config, df, df_extra, log_folder=log_folder, run=run)
+    k_fold(config, df, log_folder=log_folder)
 
     if config.local_rank == 0:
         print("\nDone !")

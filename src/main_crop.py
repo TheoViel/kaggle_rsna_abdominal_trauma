@@ -90,11 +90,8 @@ class Config:
     frames_chanel = 1
     n_frames = 11
     stride = -1
-
     aug_strength = 5
     crop = False
-    use_soft_target = False
-    use_mask = False
 
     # k-fold
     k = 4
@@ -109,9 +106,8 @@ class Config:
     num_classes_aux = 0
     drop_rate = 0.2
     drop_path_rate = 0.
-    n_channels = 4 if (use_mask and frames_chanel) else 3
+    n_channels = 3
     reduce_stride = False
-    replace_pad_conv = False
     use_gem = False
     head_3d = "lstm" if n_frames > 1 else ""
 
@@ -122,11 +118,10 @@ class Config:
         "use_any": False,
         "smoothing": 0.0,
         "activation": "softmax",
-        "aux_loss_weight": 0.0,  # Not ok with cutmix!
+        "aux_loss_weight": 0.0, 
         "name_aux": "patient",
         "smoothing_aux": 0.0,
         "activation_aux": "",
-        "ousm_k": 0,  # todo ?
     }
 
     data_config = {

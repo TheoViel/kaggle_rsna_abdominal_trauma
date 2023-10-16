@@ -38,8 +38,6 @@ def train(
         max_len=config.max_len,
         resize=config.resize,
         restrict=config.restrict,
-        use_other_series=config.use_other_series,
-        refine_target=config.refine_target,
     )
 
     val_dataset = PatientFeatureDataset(
@@ -49,7 +47,6 @@ def train(
         max_len=config.max_len,
         resize=config.resize,
         restrict=config.restrict,
-        use_other_series=config.use_other_series,
     )
 
     model = define_model(
@@ -59,11 +56,9 @@ def train(
         n_layers=config.n_layers,
         dense_dim=config.dense_dim,
         p=config.p,
-        use_msd=config.use_msd,
         num_classes=config.num_classes,
         num_classes_aux=config.num_classes_aux,
         n_fts=config.n_fts,
-        use_other_series=config.use_other_series,
     ).cuda()
 
     if config.distributed:

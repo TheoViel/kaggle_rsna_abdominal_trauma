@@ -72,6 +72,8 @@ class PatientFeatureInfDataset(Dataset):
                 if mode == "seg":
                     seg = np.load(save_folder + f"{s}_{exp_name}.npy")
                     fts.append(seg)
+                elif mode == "crop":
+                    pass
                 else:  # proba
                     ft = np.load(save_folder + f"{s}_{exp_name}.npy")
                     fts.append(ft)

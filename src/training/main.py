@@ -32,15 +32,8 @@ def train(
     Returns:
         tuple: A tuple containing predictions and metrics.
     """
-    if config.use_mask:
-        assert config.crop
-        assert config.resize == (384, 384)
-        resize = None
-    else:
-        resize = config.resize
-
     transfos = get_transfos(
-        strength=config.aug_strength, resize=resize, crop=config.crop
+        strength=config.aug_strength, resize=config.resize, crop=config.crop
     )
     train_dataset = AbdominalDataset(
         df_train,
@@ -49,14 +42,10 @@ def train(
         frames_chanel=config.frames_chanel,
         n_frames=config.n_frames,
         stride=config.stride,
-        use_soft_target=config.use_soft_target,
-        use_mask=config.use_mask,
-        use_crops=config.use_crops,
-        bowel_extrav_only=config.bowel_extrav_only,
         train=True,
     )
 
-    transfos = get_transfos(augment=False, resize=resize, crop=config.crop)
+    transfos = get_transfos(augment=False, resize=config.resize, crop=config.crop)
     val_dataset = AbdominalDataset(
         df_val,
         df_img_val,
@@ -64,10 +53,6 @@ def train(
         frames_chanel=config.frames_chanel,
         n_frames=config.n_frames,
         stride=config.stride,
-        use_soft_target=config.use_soft_target,
-        use_mask=config.use_mask,
-        use_crops=config.use_crops,
-        bowel_extrav_only=config.bowel_extrav_only,
         train=False,
     )
 
@@ -88,7 +73,6 @@ def train(
         use_gem=config.use_gem,
         head_3d=config.head_3d,
         n_frames=config.n_frames,
-        replace_pad_conv=config.replace_pad_conv,
         num_classes=config.num_classes,
         num_classes_aux=config.num_classes_aux,
         n_channels=config.n_channels,

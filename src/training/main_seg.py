@@ -163,7 +163,6 @@ def k_fold(config, df, log_folder=None, run=None):
                     df_val[[c for c in df_val.columns if "norm" in c]].max(1) > 0.1
                 ].reset_index(drop=True)
 
-            #             df_train = df_val.copy()
             train(config, df_train, df_val, fold, log_folder=log_folder, run=run)
 
             if log_folder is None or config.pretrain:

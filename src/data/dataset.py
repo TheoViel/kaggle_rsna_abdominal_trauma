@@ -5,11 +5,7 @@ import torch.nn.functional as F
 
 from torch.utils.data import Dataset
 from data.preparation import get_df_series
-from params import (
-    PATIENT_TARGETS,
-    SEG_TARGETS,
-    IMG_TARGETS_EXTENDED,
-)
+from params import PATIENT_TARGETS, IMG_TARGETS_EXTENDED
 
 
 def to_one_hot_patient(y):
@@ -631,10 +627,17 @@ class SegDataset(Dataset):
         self.img_paths = df["img_path"].values
         self.mask_paths = df["mask_path"].values
 
+        targets = [
+            "pixel_count_liver",
+            "pixel_count_spleen",
+            "pixel_count_left-kidney",
+            "pixel_count_right-kidney",
+            "pixel_count_bowel",
+        ]
         if use_soft_target:
-            self.img_targets = df[[c + "_norm" for c in SEG_TARGETS]].values
+            self.img_targets = df[[c + "_norm" for c in targets]].values
         else:
-            self.img_targets = df[SEG_TARGETS].values > 100
+            self.img_targets = df[targets].values > 100
 
     def __len__(self):
         """
@@ -657,7 +660,7 @@ class SegDataset(Dataset):
             torch.Tensor: Mask as a tensor (if not for classification).
             torch.Tensor: Label as a tensor.
         """
-        image = cv2.imread(self.img_paths[idx]).astype(np.float32) / 255.0  # 3 frames ?
+        image = cv2.imread(self.img_paths[idx]).astype(np.float32) / 255.0
 
         y = torch.tensor(self.img_targets[idx], dtype=torch.float)
 
@@ -856,6 +859,8 @@ class PatientFeatureDataset(Dataset):
                 if mode == "seg":
                     seg = np.load(exp_folder + f"pred_val_{fold}.npy")
                     fts.append(seg)
+                elif mode == "crop":
+                    continue
                 else:  # proba
                     ft = np.load(exp_folder + f"pred_val_{fold}.npy")
                     fts.append(ft)

@@ -43,7 +43,6 @@ def train(
         frames_chanel=config.frames_chanel,
         n_frames=config.n_frames,
         stride=config.stride,
-        use_mask=config.use_mask,
         train=True,
     )
 
@@ -55,7 +54,6 @@ def train(
         frames_chanel=config.frames_chanel,
         n_frames=config.n_frames,
         stride=config.stride,
-        use_mask=config.use_mask,
         train=False,
     )
 
@@ -78,7 +76,6 @@ def train(
         use_gem=config.use_gem,
         head_3d=config.head_3d,
         n_frames=config.n_frames,
-        replace_pad_conv=config.replace_pad_conv,
         num_classes=config.num_classes,
         num_classes_aux=config.num_classes_aux,
         n_channels=config.n_channels,

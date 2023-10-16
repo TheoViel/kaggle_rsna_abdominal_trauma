@@ -218,7 +218,6 @@ def fit(
                     y_pred, y_pred_aux = model(
                         x["x"].cuda(),
                         ft=x["ft"].cuda(),
-                        x_other=x["other_x"].cuda(),
                     )
                 else:
                     y_pred, y_pred_aux = model(x)

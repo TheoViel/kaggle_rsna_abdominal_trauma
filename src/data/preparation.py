@@ -109,6 +109,8 @@ def prepare_seg_data(data_path="", use_3d=False):
                 "series",
                 "pixel_count_liver",
                 "pixel_count_spleen",
+                "pixel_count_left-kidney",
+                "pixel_count_right-kidney",
                 "pixel_count_kidney",
                 "pixel_count_bowel",
             ]
