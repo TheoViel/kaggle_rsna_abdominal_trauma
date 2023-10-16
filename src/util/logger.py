@@ -57,26 +57,6 @@ def create_logger(directory="", name="logs.txt"):
     sys.stdout = file_logger
     sys.stderr = file_logger
 
-    
-def get_last_log_folder(log_path):
-    today = str(datetime.date.today())
-    log_today = f"{log_path}{today}/"
-    
-    if not os.path.exists(log_today):
-        today = today - timedelta(days=1)
-        log_today = f"{log_path}{today}/"
-
-    exps = []
-    for f in os.listdir(log_today):
-        try:
-            exps.append(int(f))
-        except Exception:
-            continue
-    exp_id = np.max(exps)
-
-    log_folder = log_today + f"{exp_id}/"
-    return log_folder
-
 
 def prepare_log_folder(log_path):
     """
@@ -172,7 +152,9 @@ def init_neptune(config, log_folder):
         Neptune run: Run.
     """
     print()
-    run = neptune.init_run(project=NEPTUNE_PROJECT, git_ref=neptune.types.GitRef.DISABLED)
+    run = neptune.init_run(
+        project=NEPTUNE_PROJECT, git_ref=neptune.types.GitRef.DISABLED
+    )
 
     run["global/log_folder"] = log_folder
 
@@ -209,26 +191,33 @@ def upload_to_kaggle(folders, directory, dataset_name, update_folders=True):
         dataset_name (_type_): _description_
     """
     os.makedirs(directory, exist_ok=True)
-    
+
     def custom_ignore(src, names):
-        folders_to_skip = ['masks']
+        folders_to_skip = ["masks"]
         return [name for name in names if name in [folders_to_skip]]
 
     for folder in folders:
         print(f"- Copying {folder} ...")
         name = "_".join(folder[:-1].split("/")[-2:])
         try:
-            shutil.copytree(folder, directory + name,  ignore=lambda src, names: [n for n in names if "mask" in n])
+            shutil.copytree(
+                folder,
+                directory + name,
+                ignore=lambda src, names: [n for n in names if "mask" in n],
+            )
         except FileExistsError:
             if update_folders:
                 shutil.rmtree(directory + name)
-                shutil.copytree(folder, directory + name, ignore=lambda src, names: [n for n in names if "mask" in n])
+                shutil.copytree(
+                    folder,
+                    directory + name,
+                    ignore=lambda src, names: [n for n in names if "mask" in n],
+                )
         for i in range(4):
             try:
-                os.remove(f'{directory + name}/fts_val_{i}.npy')
-            except:
+                os.remove(f"{directory + name}/fts_val_{i}.npy")
+            except Exception:
                 pass
-            
 
     print(f"\nDataset size : {get_size(directory):.3f} Go")
 

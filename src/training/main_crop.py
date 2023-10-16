@@ -1,8 +1,6 @@
 import gc
 import glob
-import json
 import torch
-import operator
 import numpy as np
 import pandas as pd
 from torch.nn.parallel import DistributedDataParallel
@@ -16,20 +14,24 @@ from data.transforms import get_transfos
 from util.torch import seed_everything, count_parameters, save_model_weights
 
 
-def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=None, run=None):
+def train(
+    config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=None, run=None
+):
     """
-    Trains and validate a model.
+    Train a crop model.
 
     Args:
-        config (Config): Parameters.
-        df_train (pandas dataframe): Training metadata.
-        df_val (pandas dataframe): Validation metadata.
-        fold (int): Selected fold.
-        log_folder (None or str, optional): Folder to logs results to. Defaults to None.
-        run (neptune.Run): Nepture run. Defaults to None.
+        config (Config): Configuration parameters for training.
+        df_train (pandas DataFrame): Metadata for training dataset.
+        df_val (pandas DataFrame): Metadata for validation dataset.
+        df_img_train (pandas DataFrame): Metadata containing image information for training.
+        df_img_val (pandas DataFrame): Metadata containing image information for validation.
+        fold (int): Fold number for cross-validation.
+        log_folder (str, optional): Folder for saving logs. Defaults to None.
+        run: Neptune run. Defaults to None.
 
     Returns:
-        dict: Dice scores at different thresholds.
+        tuple: A tuple containing predictions and metrics.
     """
     transfos = get_transfos(
         strength=config.aug_strength, resize=config.resize, crop=config.crop
@@ -45,9 +47,7 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
         train=True,
     )
 
-    transfos = get_transfos(
-        augment=False, resize=config.resize, crop=config.crop
-    )
+    transfos = get_transfos(augment=False, resize=config.resize, crop=config.crop)
     val_dataset = AbdominalCropDataset(
         df_val,
         df_img_val,
@@ -136,19 +136,16 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
     return preds, metrics
 
 
-def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
+def k_fold(config, df, df_img, log_folder=None, run=None):
     """
-    Trains a k-fold.
+    Perform k-fold cross-validation training for a crop model.
 
     Args:
-        config (Config): Parameters.
-        df (pandas dataframe): Metadata.
-        df_extra (pandas dataframe or None, optional): Extra metadata. Defaults to None.
-        log_folder (None or str, optional): Folder to logs results to. Defaults to None.
-        run (None or Nepture run): Nepture run. Defaults to None.
-
-    Returns:
-        dict: Dice scores at different thresholds.
+        config (dict): Configuration parameters for training.
+        df (pandas DataFrame): Main dataset metadata.
+        df_img (pandas DataFrame): Metadata containing image information.
+        log_folder (str, optional): Folder for saving logs. Defaults to None.
+        run: Neptune run. Defaults to None.
     """
     folds = pd.read_csv(config.folds_file)
     df = df.merge(folds, how="left")
@@ -163,22 +160,28 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
                 )
             seed_everything(config.seed + fold)
 
-            df_train = df[df['fold'] != fold].reset_index(drop=True)
-            df_val = df[df['fold'] == fold].reset_index(drop=True)
-            val_idx = list(df[df["fold"] == fold].index)
-            
-            df_img_train = df_img[df_img['fold'] != fold].reset_index(drop=True)
-            df_img_val = df_img[df_img['fold'] == fold].reset_index(drop=True)
+            df_train = df[df["fold"] != fold].reset_index(drop=True)
+            df_val = df[df["fold"] == fold].reset_index(drop=True)
+
+            df_img_train = df_img[df_img["fold"] != fold].reset_index(drop=True)
+            df_img_val = df_img[df_img["fold"] == fold].reset_index(drop=True)
 
             if len(df) <= 1000:
                 df_train, df_val = df, df
                 df_img_train, df_img_val = df_img, df_img
 
             preds, metrics = train(
-                config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=log_folder, run=run
+                config,
+                df_train,
+                df_val,
+                df_img_train,
+                df_img_val,
+                fold,
+                log_folder=log_folder,
+                run=run,
             )
             all_metrics.append(metrics)
-            
+
             if log_folder is None:
                 return
 
@@ -187,14 +190,14 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
                 df_val.to_csv(log_folder + f"df_val_{fold}.csv", index=False)
 
     if config.local_rank == 0:
-        print(f"\n-------------   CV Scores  -------------\n")
+        print("\n-------------   CV Scores  -------------\n")
 
         for k in all_metrics[0].keys():
             avg = np.mean([m[k] for m in all_metrics])
             print(f"- {k.split('_')[0][:7]} score\t: {avg:.3f}")
             if run is not None:
                 run[f"global/{k}"] = avg
-        
+
         if run is not None:
             run["global/logs"].upload(log_folder + "logs.txt")
 
@@ -212,9 +215,9 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
             train(
                 config,
                 df,
-                df[df['fold'] == 0].reset_index(drop=True),
+                df[df["fold"] == 0].reset_index(drop=True),
                 df_img,
-                df_img[df_img['fold'] == 0].reset_index(drop=True),
+                df_img[df_img["fold"] == 0].reset_index(drop=True),
                 f"fullfit_{ff}",
                 log_folder=log_folder,
                 run=run,

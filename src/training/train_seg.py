@@ -1,7 +1,6 @@
 import gc
 import time
 import torch
-import operator
 import numpy as np
 from tqdm import tqdm
 from transformers import get_linear_schedule_with_warmup
@@ -18,22 +17,9 @@ class SegmentationMeter:
     """
     Meter to handle predictions and metrics for segmentation tasks.
 
-    This class is used to compute and track metrics for segmentation tasks, such as
-    Intersection over Union (IoU) and accuracy. It maintains a set of thresholds for
-    predictions and provides methods to update the meter with new predictions and to
-    reset the metrics.
-
-    Methods:
-        __init__(threshold): Constructor.
-        update(y, y_aux, y_pred, y_pred_aux): Update the meter with new predictions.
-        reset(): Reset all the tracked metrics.
-
     Attributes:
         threshold (float): Threshold for predictions.
-        thresholds (numpy array): Array of thresholds used for computing metrics.
-        unions (dict): Dictionary of tensors to track intersection counts for each threshold.
-        intersections (dict): Dictionary of tensors to track union counts for each threshold.
-        accs (list): List of tensors to track accuracy values.
+        classes (list): Classes.
     """
 
     def __init__(self, threshold=0.5):
@@ -60,19 +46,18 @@ class SegmentationMeter:
         y = y.view(1, -1)
         y_pred = y_pred.argmax(1).view(1, -1)
 
-#         for c in self.classes:
-#             self.unions[c] += ((y_pred[:, c] > 0.5).sum(-1) + (y == (c + 1)).sum(-1)).int()
-#             self.intersections[c] += (((y_pred[:, c] > 0.5) & (y == (c + 1))).sum(-1)).int()
-
         for c in self.classes:
             self.unions[c] += ((y_pred == c).sum(-1) + (y == c).sum(-1)).int()
             self.intersections[c] += ((y_pred == c) & (y == c)).sum(-1).int()
-            
+
         try:
             self.accs.append(
-                ((y_pred_aux.view(-1) > self.threshold) == (y_aux.view(-1) > self.threshold)).float()
+                (
+                    (y_pred_aux.view(-1) > self.threshold)
+                    == (y_aux.view(-1) > self.threshold)
+                ).float()
             )
-        except:
+        except Exception:
             self.accs.append(torch.zeros(1).cuda())
 
     def reset(self):
@@ -80,7 +65,9 @@ class SegmentationMeter:
         Reset all the tracked metrics.
         """
         self.unions = {c: torch.zeros(1, dtype=torch.int).cuda() for c in self.classes}
-        self.intersections = {c: torch.zeros(1, dtype=torch.int).cuda() for c in self.classes}
+        self.intersections = {
+            c: torch.zeros(1, dtype=torch.int).cuda() for c in self.classes
+        }
         self.accs = []
 
 
@@ -162,10 +149,10 @@ def evaluate(
             dices[c] = (2 * intersections.sum() / (unions.sum())).item()
             acc = accs.mean().item()
 
-#     print(intersections.sum(), unions.sum())
+    #     print(intersections.sum(), unions.sum())
     if local_rank == 0:
         acc = accs.mean().item()
-        if not loss_config['aux_loss_weight']:
+        if not loss_config["aux_loss_weight"]:
             acc = 0
         val_loss = np.nanmean(val_losses.cpu().numpy())
         return val_loss, dices, acc
@@ -203,7 +190,6 @@ def fit(
         epochs (int, optional): Number of training epochs. Defaults to 1.
         verbose_eval (int, optional): Number of steps for verbose evaluation. Defaults to 1.
         use_fp16 (bool, optional): Whether to use mixed precision training. Defaults to False.
-        model_soup (bool, optional): Whether to save model weights for soup. Defaults to False.
         distributed (bool, optional): Whether to use distributed training. Defaults to False.
         local_rank (int, optional): Local process rank in distributed training. Defaults to 0.
         world_size (int, optional): Number of processes in distributed training. Defaults to 1.
@@ -249,13 +235,13 @@ def fit(
         mix = Cutmix(
             data_config["mix_alpha"],
             data_config["additive_mix"],
-            data_config["num_classes"]
+            data_config["num_classes"],
         )
     else:
         mix = Mixup(
             data_config["mix_alpha"],
             data_config["additive_mix"],
-            data_config["num_classes"]
+            data_config["num_classes"],
         )
 
     acc = 0
@@ -330,7 +316,7 @@ def fit(
                     lr = scheduler.get_last_lr()[0]
                     step_ = step * world_size
 
-#                     print(dices)
+                    #                     print(dices)
                     dice = np.nanmean(list(dices.values()))
 
                     s = f"Epoch {epoch:02d}/{epochs:02d} (step {step_:04d}) \t"

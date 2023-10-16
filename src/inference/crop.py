@@ -3,6 +3,22 @@ import numpy as np
 
 
 def get_crops(seg):
+    """
+    Extract bounding box coordinates for organs in a segmentation mask.
+    This function takes a 3D segmentation mask as input and calculates the coordinates of bounding boxes for
+    liver, spleen, and kidney.
+
+    Args:
+        seg (torch.Tensor): 3D segmentation mask tensor wwith labels
+            (background = 0, liver = 1, spleen = 2, and kidney = 3).
+
+    Returns:
+        List of List: A list containing the coordinates for different organs in the following format:
+        [[x0_liver, x1_liver, y0_liver, y1_liver, z0_liver, z1_liver],
+         [x0_spleen, x1_spleen, y0_spleen, y1_spleen, z0_spleen, z1_spleen],
+         [x0_kidney, x1_kidney, y0_kidney, y1_kidney, z0_kidney, z1_kidney]]
+    """
+    # Imp
     def get_start_end(x):
         x = x.int()
         return torch.argmax(x).item(), len(x) - torch.argmax(x.flip(0)).item()

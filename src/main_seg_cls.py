@@ -3,13 +3,12 @@ import time
 import torch
 import warnings
 import argparse
-import pandas as pd
 
 from data.preparation import prepare_seg_data
 from util.torch import init_distributed
-from util.logger import create_logger, save_config, prepare_log_folder, init_neptune
+from util.logger import create_logger, save_config, prepare_log_folder
 
-from params import DATA_PATH, SEG_TARGETS
+from params import DATA_PATH
 
 
 def parse_args():
@@ -63,7 +62,7 @@ def parse_args():
     parser.add_argument(
         "--weight-decay",
         type=float,
-        default=0.,
+        default=0.0,
         help="Weight decay",
     )
     return parser.parse_args()
@@ -73,6 +72,7 @@ class Config:
     """
     Parameters used for training
     """
+
     # General
     seed = 42
     verbose = 1
@@ -95,7 +95,7 @@ class Config:
     name = "efficientnetv2_rw_t"
     pretrained_weights = None
     use_3d = False
-    
+
     num_classes = 4
     num_classes_aux = 0
     drop_rate = 0
@@ -106,7 +106,7 @@ class Config:
     replace_pad_conv = False
     use_gem = True
 
-    # Training    
+    # Training
     loss_config = {
         "name": "bce",
         "smoothing": 0,
@@ -123,8 +123,8 @@ class Config:
         "val_bs": 32,
         "mix": "mixup",
         "sched": False,
-        "mix_proba": 0.,
-        "mix_alpha": 4.,
+        "mix_proba": 0.0,
+        "mix_alpha": 4.0,
         "additive_mix": False,
         "num_classes": num_classes,
         "num_workers": 8,
@@ -133,10 +133,10 @@ class Config:
     optimizer_config = {
         "name": "AdamW",
         "lr": 5e-4,
-        "warmup_prop": 0.,
+        "warmup_prop": 0.0,
         "betas": (0.9, 0.999),
-        "max_grad_norm": 10.,
-        "weight_decay": 0.,
+        "max_grad_norm": 10.0,
+        "weight_decay": 0.0,
     }
 
     epochs = 4
@@ -144,10 +144,10 @@ class Config:
     use_fp16 = True
     verbose = 1
     verbose_eval = 50
-    
+
     fullfit = True
     n_fullfit = 1
-    
+
     pretrain = False
 
 
@@ -174,7 +174,7 @@ if __name__ == "__main__":
 
         if config.local_rank == 0:
             log_folder = prepare_log_folder(LOG_PATH)
-            print(f'\n -> Logging results to {log_folder}\n')
+            print(f"\n -> Logging results to {log_folder}\n")
 
     if args.model:
         config.name = args.model
@@ -194,7 +194,7 @@ if __name__ == "__main__":
 
     run = None
     if config.local_rank == 0:
-#         run = init_neptune(config, log_folder)
+        #         run = init_neptune(config, log_folder)
 
         if args.fold > -1:
             config.selected_folds = [args.fold]
@@ -216,9 +216,7 @@ if __name__ == "__main__":
         )
         print("\n -> Training\n")
 
-        
     df = prepare_seg_data(data_path=DATA_PATH)
-#     df = df[(df[SEG_TARGETS] > 0).max(1)].reset_index(drop=True)
 
     from training.main_seg import k_fold
     k_fold(config, df, log_folder=log_folder, run=run)

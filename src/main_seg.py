@@ -7,9 +7,9 @@ import pandas as pd
 
 from data.preparation import prepare_seg_data
 from util.torch import init_distributed
-from util.logger import create_logger, save_config, prepare_log_folder, init_neptune
+from util.logger import create_logger, save_config, prepare_log_folder
 
-from params import DATA_PATH, SEG_TARGETS
+from params import DATA_PATH
 
 
 def parse_args():
@@ -63,7 +63,7 @@ def parse_args():
     parser.add_argument(
         "--weight-decay",
         type=float,
-        default=0.,
+        default=0.0,
         help="Weight decay",
     )
     return parser.parse_args()
@@ -73,6 +73,7 @@ class Config:
     """
     Parameters used for training
     """
+
     # General
     seed = 42
     verbose = 1
@@ -103,12 +104,12 @@ class Config:
     num_classes_aux = 0
     n_channels = 1
 
-    # Training    
+    # Training
     loss_config = {
         "name": "ce",
         "smoothing": 0,
         "activation": "sigmoid",
-        "aux_loss_weight": 0.,
+        "aux_loss_weight": 0.0,
         "name_aux": "bce",
         "smoothing_aux": 0,
         "activation_aux": "sigmoid",
@@ -130,10 +131,10 @@ class Config:
     optimizer_config = {
         "name": "AdamW",
         "lr": 1e-3,
-        "warmup_prop": 0.,
+        "warmup_prop": 0.0,
         "betas": (0.9, 0.999),
-        "max_grad_norm": 10.,
-        "weight_decay": 0.,
+        "max_grad_norm": 10.0,
+        "weight_decay": 0.0,
     }
 
     epochs = 10 if pretrain else 100
@@ -141,7 +142,7 @@ class Config:
     use_fp16 = True
     verbose = 1
     verbose_eval = 50
-    
+
     fullfit = True
     n_fullfit = 1
 
@@ -169,7 +170,7 @@ if __name__ == "__main__":
 
         if config.local_rank == 0:
             log_folder = prepare_log_folder(LOG_PATH)
-            print(f'\n -> Logging results to {log_folder}\n')
+            print(f"\n -> Logging results to {log_folder}\n")
 
     if args.model:
         config.name = args.model
@@ -189,7 +190,7 @@ if __name__ == "__main__":
 
     run = None
     if config.local_rank == 0:
-#         run = init_neptune(config, log_folder)
+        #         run = init_neptune(config, log_folder)
 
         if args.fold > -1:
             config.selected_folds = [args.fold]
@@ -213,11 +214,9 @@ if __name__ == "__main__":
 
     df_extra = None
     if config.pretrain:
-        df_extra = pd.read_csv(DATA_PATH + 'df_seg_3d_extra.csv')
+        df_extra = pd.read_csv(DATA_PATH + "df_seg_3d_extra.csv")
 
     df = prepare_seg_data(data_path=DATA_PATH, use_3d=config.use_3d)
-#     df = df[df['patient_id'] == 10217].reset_index(drop=True)
-#     df = df[df[[c for c in df.columns if "norm" in c]].max(1) > 0.1].reset_index(drop=True)
 
     from training.main_seg import k_fold
     k_fold(config, df, df_extra, log_folder=log_folder, run=run)

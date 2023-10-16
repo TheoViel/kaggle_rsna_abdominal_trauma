@@ -126,7 +126,9 @@ class Lookahead(Optimizer):
         self.optimizer.add_param_group(param_group)
 
 
-def define_optimizer(model, name, lr=1e-3, lr_encoder=1e-3, weight_decay=0, betas=(0.9, 0.999)):
+def define_optimizer(
+    model, name, lr=1e-3, lr_encoder=1e-3, weight_decay=0, betas=(0.9, 0.999)
+):
     """
     Defines an optimizer for the given model based on the specified name.
     Supports discriminative lr between the encoder and other layers.

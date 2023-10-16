@@ -3,18 +3,18 @@ import time
 import torch
 import warnings
 import argparse
-import pandas as pd
 
 from data.preparation import prepare_data
 from util.torch import init_distributed
-from util.logger import create_logger, save_config, prepare_log_folder, init_neptune, get_last_log_folder
+from util.logger import (
+    create_logger,
+    save_config,
+    prepare_log_folder,
+    init_neptune,
+    get_last_log_folder,
+)
 
 from params import DATA_PATH
-
-PRETRAINED_WEIGHTS = {
-    "convnextv2_tiny": "../logs/2023-10-06/38/",
-    "maxvit_tiny_tf_384": "../logs/2023-10-05/13/",
-}
 
 
 def parse_args():
@@ -68,7 +68,7 @@ def parse_args():
     parser.add_argument(
         "--weight-decay",
         type=float,
-        default=0.,
+        default=0.0,
         help="Weight decay",
     )
     return parser.parse_args()
@@ -78,6 +78,7 @@ class Config:
     """
     Parameters used for training
     """
+
     # General
     seed = 42
     verbose = 1
@@ -85,18 +86,13 @@ class Config:
     save_weights = True
 
     # Data
-    resize = (384, 384)
+    resize = (512, 512)
     frames_chanel = 1
     n_frames = 1
     stride = 1
 
     aug_strength = 5
     crop = True
-    use_crops = False
-    use_soft_target = False
-    use_mask = False
-
-    bowel_extrav_only = False
 
     # k-fold
     k = 4
@@ -104,14 +100,14 @@ class Config:
     selected_folds = [0, 1, 2, 3]
 
     # Model
-    name = "coatnet_rmlp_2_rw_384"  # convnextv2_tiny maxvit_tiny_tf_384
-    pretrained_weights = None  # PRETRAINED_WEIGHTS[name]  # None 
+    name = "maxvit_tiny_tf_512"  # convnextv2_tiny maxvit_tiny_tf_384
+    pretrained_weights = None  # PRETRAINED_WEIGHTS[name]  # None
 
-    num_classes = 2 if bowel_extrav_only else 11
+    num_classes = 11
     num_classes_aux = 0
     drop_rate = 0.05 if "convnext" in name else 0.2
     drop_path_rate = 0.05 if "convnext" in name else 0.2
-    n_channels = 4 if (use_mask and frames_chanel) else 3
+    n_channels = 3
     reduce_stride = False
     replace_pad_conv = False
     use_gem = True
@@ -119,23 +115,23 @@ class Config:
 
     # Training
     loss_config = {
-        "name": "bce" if bowel_extrav_only else "patient",
+        "name": "patient",
         "weighted": False,
         "use_any": False,
-        "smoothing": 0.,
-        "activation": "sigmoid" if bowel_extrav_only else "patient",
-        "aux_loss_weight": 0.,  # Not ok with cutmix!
+        "smoothing": 0.0,
+        "activation": "patient",
+        "aux_loss_weight": 0.0,  # Not ok with cutmix!
         "name_aux": "patient",
-        "smoothing_aux": 0.,
+        "smoothing_aux": 0.0,
         "activation_aux": "",
         "ousm_k": 0,  # todo ?
     }
 
     data_config = {
         "batch_size": 32 if n_frames <= 1 else 8,
-        "val_bs":  32 if n_frames <= 1 else 16,
+        "val_bs": 32 if n_frames <= 1 else 16,
         "mix": "cutmix",
-        "mix_proba": 1.,
+        "mix_proba": 1.0,
         "sched": False,
         "mix_alpha": 4,
         "additive_mix": False,
@@ -146,18 +142,18 @@ class Config:
     optimizer_config = {
         "name": "Ranger",
         "lr": 5e-4 if n_frames <= 1 else 2e-4,
-        "warmup_prop": 0.,
+        "warmup_prop": 0.0,
         "betas": (0.9, 0.999),
         "max_grad_norm": 0.1,
-        "weight_decay": 0.,
+        "weight_decay": 0.0,
     }
 
-    epochs = 15  # 40 if n_frames == 1 else 30
+    epochs = 40 if n_frames == 1 else 30
 
     use_fp16 = True
     verbose = 1
     verbose_eval = 50 if data_config["batch_size"] >= 16 else 100
-    
+
     fullfit = True
     n_fullfit = 1
 
@@ -185,11 +181,11 @@ if __name__ == "__main__":
 
         if config.local_rank == 0:
             log_folder = prepare_log_folder(LOG_PATH)
-            print(f'\n -> Logging results to {log_folder}\n')
+            print(f"\n -> Logging results to {log_folder}\n")
         else:
             time.sleep(2)
             log_folder = get_last_log_folder(LOG_PATH)
-#             print(log_folder)
+    #             print(log_folder)
 
     if args.model:
         config.name = args.model
@@ -209,14 +205,6 @@ if __name__ == "__main__":
 
     df_patient, df_img = prepare_data(DATA_PATH, with_crops=True)
 
-#     try:
-#         print(torch_performance_linter)  # noqa
-#         if config.local_rank == 0:
-#             print("Using TPL\n")
-#         run = None
-#         config.epochs = 1
-#         log_folder = None
-#     except Exception:
     run = None
     if config.local_rank == 0:
         run = init_neptune(config, log_folder)
@@ -242,21 +230,26 @@ if __name__ == "__main__":
         print("\n -> Training\n")
 
     from training.main import k_fold
+
     k_fold(config, df_patient, df_img, log_folder=log_folder, run=run)
 
     if len(config.selected_folds) == 4:
         if config.local_rank == 0:
             print("\n -> Extracting features\n")
 
-        if config.head_3d == "cnn":
-            from inference.extract_features_3d_cnn import kfold_inference
-        elif config.head_3d:
-            from inference.extract_features_3d import kfold_inference
+        if config.head_3d:
+            raise NotImplementedError
         else:
             from inference.extract_features import kfold_inference
-    
+
         kfold_inference(
-            df_patient, df_img, log_folder, use_fp16=config.use_fp16, save=True, distributed=True, config=config
+            df_patient,
+            df_img,
+            log_folder,
+            use_fp16=config.use_fp16,
+            save=True,
+            distributed=True,
+            config=config,
         )
 
     if config.local_rank == 0:

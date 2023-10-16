@@ -17,7 +17,6 @@ class Mixup(nn.Module):
         self.beta_distribution = torch.distributions.Beta(alpha, alpha)
         self.additive = additive
         self.num_classes = num_classes
-        
 
     def forward(self, x, y, y_aux=None):
         """
@@ -59,15 +58,15 @@ class Mixup(nn.Module):
 
         if self.additive:
             y = torch.cat([y.unsqueeze(0), y[perm].unsqueeze(0)], 0).amax(0)
-            y[:, 3] *= (1 - y[:, 4])
+            y[:, 3] *= 1 - y[:, 4]
             y[:, 2] = 1 - y[:, 4] - y[:, 3]
-            y[:, 6] *= (1 - y[:, 7])
+            y[:, 6] *= 1 - y[:, 7]
             y[:, 5] = 1 - y[:, 7] - y[:, 6]
-            y[:, 9] *= (1 - y[:, 10])
+            y[:, 9] *= 1 - y[:, 10]
             y[:, 8] = 1 - y[:, 10] - y[:, 9]
 
             if y_aux is not None:
-#                 raise NotImplementedError
+                #                 raise NotImplementedError
                 y_aux = (y_aux + y_aux[perm]).clip(0, 1)
         else:
             if len(y.shape) == 1:
@@ -162,13 +161,13 @@ class Cutmix(nn.Module):
 
         bby1 = np.clip(cy - cut_h // 2, 0, h)
         bby2 = np.clip(cy + cut_h // 2, 0, h)
-        
+
         bbz1 = np.clip(cz - cut_d // 2, 0, d)
         bbz2 = np.clip(cz + cut_d // 2, 0, d)
-    
+
         lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1) * (bbz2 - bbz1) / (w * h * d))
         return bbx1, bby1, bbx2, bby2, bbz1, bbz2, lam
-    
+
     def forward(self, x, y, y_aux=None, use_3d=False):
         """
         Forward pass of the Cutmix module.
@@ -185,10 +184,17 @@ class Cutmix(nn.Module):
         """
         n_dims = len(x.shape)
         perm = torch.randperm(x.shape[0])
-        coeff = self.beta_distribution.rsample(torch.Size((1,))).to(x.device).view(-1).item()
+        coeff = (
+            self.beta_distribution.rsample(torch.Size((1,)))
+            .to(x.device)
+            .view(-1)
+            .item()
+        )
 
         if use_3d:
-            bbx1, bby1, bbx2, bby2, bbz1, bbz2, coeff = self.rand_bbox_3d(x.size(), coeff)
+            bbx1, bby1, bbx2, bby2, bbz1, bbz2, coeff = self.rand_bbox_3d(
+                x.size(), coeff
+            )
         else:
             bbx1, bby1, bbx2, bby2, coeff = self.rand_bbox(x.size(), coeff)
 
@@ -196,11 +202,13 @@ class Cutmix(nn.Module):
             x[:, bbx1:bbx2, bby1:bby2] = x[perm, bbx1:bbx2, bby1:bby2]
         elif n_dims == 4:  # bs x channels x h x w
             x[:, :, bbx1:bbx2, bby1:bby2] = x[perm, :, bbx1:bbx2, bby1:bby2]
-#         elif n_dims == 5:  # bs x t x channels x h x w
-#             
-        elif n_dims == 5:  # bs x channels x h x w x d 
+        #         elif n_dims == 5:  # bs x t x channels x h x w
+        #
+        elif n_dims == 5:  # bs x channels x h x w x d
             if use_3d:
-                x[:, :, bbx1:bbx2, bby1:bby2, bbz1:bbz2] = x[perm, :,  bbx1:bbx2, bby1:bby2, bbz1:bbz2]
+                x[:, :, bbx1:bbx2, bby1:bby2, bbz1:bbz2] = x[
+                    perm, :, bbx1:bbx2, bby1:bby2, bbz1:bbz2
+                ]
             else:
                 x[:, :, :, bbx1:bbx2, bby1:bby2] = x[perm, :, :, bbx1:bbx2, bby1:bby2]
         else:
@@ -210,11 +218,11 @@ class Cutmix(nn.Module):
         if n_dims == 2:  # bs x n_classes
             if self.additive:
                 y = torch.cat([y.unsqueeze(0), y[perm].unsqueeze(0)], 0).amax(0)
-                y[:, 3] *= (1 - y[:, 4])
+                y[:, 3] *= 1 - y[:, 4]
                 y[:, 2] = 1 - y[:, 4] - y[:, 3]
-                y[:, 6] *= (1 - y[:, 7])
+                y[:, 6] *= 1 - y[:, 7]
                 y[:, 5] = 1 - y[:, 7] - y[:, 6]
-                y[:, 9] *= (1 - y[:, 10])
+                y[:, 9] *= 1 - y[:, 10]
                 y[:, 8] = 1 - y[:, 10] - y[:, 9]
             else:
                 y = coeff * y + (1 - coeff) * y[perm]
@@ -224,10 +232,12 @@ class Cutmix(nn.Module):
             y[:, :, bbx1:bbx2, bby1:bby2] = y[perm, :, bbx1:bbx2, bby1:bby2]
         elif n_dims == 5:  # mask - bs x classes x h x w x d
             if use_3d:
-                y[:, :, bbx1:bbx2, bby1:bby2, bbz1:bbz2] = y[perm, :, bbx1:bbx2, bby1:bby2, bbz1:bbz2]
+                y[:, :, bbx1:bbx2, bby1:bby2, bbz1:bbz2] = y[
+                    perm, :, bbx1:bbx2, bby1:bby2, bbz1:bbz2
+                ]
             else:
-                 y[:, :, :, bbx1:bbx2, bby1:bby2] = y[perm, :, :, bbx1:bbx2, bby1:bby2]
-           
+                y[:, :, :, bbx1:bbx2, bby1:bby2] = y[perm, :, :, bbx1:bbx2, bby1:bby2]
+
         else:
             raise NotImplementedError
 

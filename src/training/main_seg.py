@@ -1,13 +1,9 @@
 import gc
 import glob
-import json
 import torch
-import operator
-import numpy as np
 import pandas as pd
 from torch.nn.parallel import DistributedDataParallel
 
-from params import SEG_TARGETS
 from training.train import fit
 from training.train_seg import fit as fit_seg
 from model_zoo.models import define_model
@@ -19,30 +15,30 @@ from util.torch import seed_everything, count_parameters, save_model_weights
 
 def train(config, df_train, df_val, fold, log_folder=None, run=None):
     """
-    Trains and validate a model.
+    Train a segmentation model.
 
     Args:
-        config (Config): Parameters.
-        df_train (pandas dataframe): Training metadata.
-        df_val (pandas dataframe): Validation metadata.
-        fold (int): Selected fold.
-        log_folder (None or str, optional): Folder to logs results to. Defaults to None.
-        run (neptune.Run): Nepture run. Defaults to None.
+        config (Config): Configuration parameters for training.
+        df_train (pandas DataFrame): Metadata for training dataset.
+        df_val (pandas DataFrame): Metadata for validation dataset.
+        fold (int): Fold number for cross-validation.
+        log_folder (str, optional): Folder for saving logs. Defaults to None.
+        run: Neptune run. Defaults to None.
 
     Returns:
-        dict: Dice scores at different thresholds.
+        tuple: A tuple containing predictions and metrics.
     """
     if not config.use_3d:
         train_dataset = SegDataset(
             df_train,
             transforms=get_transfos(strength=config.aug_strength, resize=config.resize),
-            for_classification=config.for_classification
+            for_classification=config.for_classification,
         )
 
         val_dataset = SegDataset(
             df_val,
             transforms=get_transfos(augment=False, resize=config.resize),
-            for_classification=config.for_classification
+            for_classification=config.for_classification,
         )
     else:
         train_dataset = Seg3dDataset(df_train, train=True)
@@ -138,19 +134,15 @@ def train(config, df_train, df_val, fold, log_folder=None, run=None):
     gc.collect()
 
 
-def k_fold(config, df, df_extra=None, log_folder=None, run=None):
+def k_fold(config, df, log_folder=None, run=None):
     """
-    Trains a k-fold.
+    Perform k-fold cross-validation training for a segmentation model.
 
     Args:
-        config (Config): Parameters.
-        df (pandas dataframe): Metadata.
-        df_extra (pandas dataframe or None, optional): Extra metadata. Defaults to None.
-        log_folder (None or str, optional): Folder to logs results to. Defaults to None.
-        run (None or Nepture run): Nepture run. Defaults to None.
-
-    Returns:
-        dict: Dice scores at different thresholds.
+        config (dict): Configuration parameters for training.
+        df (pandas DataFrame): Main dataset metadata.
+        log_folder (str, optional): Folder for saving logs. Defaults to None.
+        run: Neptune run. Defaults to None.
     """
     folds = pd.read_csv(config.folds_file)
     df = df.merge(folds, how="left")
@@ -163,21 +155,16 @@ def k_fold(config, df, df_extra=None, log_folder=None, run=None):
                 )
             seed_everything(config.seed + fold)
 
-            if config.pretrain:
-                df_train = df_extra.copy()
-            else:
-                df_train = df[df['fold'] != fold].reset_index(drop=True)
-            df_val = df[df['fold'] == fold].reset_index(drop=True)
-            
+            df_train = df[df["fold"] != fold].reset_index(drop=True)
+            df_val = df[df["fold"] == fold].reset_index(drop=True)
+
             if not config.use_3d:
                 df_val = df_val[
                     df_val[[c for c in df_val.columns if "norm" in c]].max(1) > 0.1
                 ].reset_index(drop=True)
 
-#             df_train = df_val.copy()
-            train(
-                config, df_train, df_val, fold, log_folder=log_folder, run=run
-            )
+            #             df_train = df_val.copy()
+            train(config, df_train, df_val, fold, log_folder=log_folder, run=run)
 
             if log_folder is None or config.pretrain:
                 return

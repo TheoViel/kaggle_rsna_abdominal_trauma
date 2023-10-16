@@ -6,40 +6,62 @@ from torch.utils.data import Dataset, DataLoader
 
 
 class AbdominalInfDataset(Dataset):
+    """
+    Dataset for infering 2D classification models on kaggle.
+    It is optimized to compute the CNN forward only once when models are 2.5D :
+    Trick is to extract CNN features for all images,
+    and then compute the sequential head by retrieving the indexed features.
+
+    Attributes:
+        df (pandas DataFrame): Metadata containing image information.
+        transforms (albu transforms): Transforms to apply to the images.
+        frames_chanel (int): The number of frames to consider for channel stacking.
+        n_frames (int): The number of frames to use.
+        stride (int): The step size between frames.
+        imgs (dict): Dictionary for storing loaded images.
+        paths (list): List of paths.
+        features (list): List of precompted features.
+    """
+
     def __init__(
         self,
         df,
         frames_chanel=0,
         n_frames=1,
         stride=1,
-        use_mask=False,
         imgs={},
         paths=[],
         features=[],
     ):
         """
         Constructor.
+        The single frame flag is used for features precomputation.
 
         Args:
-            df_img (pandas DataFrame): Metadata containing information about the dataset.
-            df_patient (pandas DataFrame): Metadata containing information about the dataset.
+            df (pandas DataFrame): Metadata containing image information.
             transforms (albu transforms, optional): Transforms to apply to images and masks. Defaults to None.
+            frames_chanel (int, optional): Number of frames to consider for channel stacking. Defaults to 0.
+            n_frames (int, optional): The number of frames to use. Defaults to 1.
+            stride (int, optional): The step size between frames. Defaults to 1.
+            imgs (dict, optional): Dictionary for storing loaded images. Defaults to an empty dictionary.
+            paths (list, optional): List of paths. Defaults to an empty list.
+            features (list, optional): List of precomputed features. Defaults to an empty list.
         """
         self.df = df
-        self.info = self.df[['path', "patient_id", 'series', 'frame']].values
+        self.info = self.df[["path", "patient_id", "series", "frame"]].values
         self.frames_chanel = frames_chanel
         self.n_frames = n_frames
         self.stride = stride
 
-        self.max_frames = dict(df[["series", "frame"]].groupby("series").max()['frame'])
-        
+        self.max_frames = dict(df[["series", "frame"]].groupby("series").max()["frame"])
+
         self.imgs = imgs
         self.paths = paths
         self.features = features
 
         if len(features):
             self.features = dict(zip(self.get_keys(), features))
-        
+
     def __len__(self):
         """
         Get the length of the dataset.
@@ -48,26 +70,51 @@ class AbdominalInfDataset(Dataset):
             int: Length of the dataset.
         """
         return len(self.info)
-    
+
     def get_keys(self):
+        """
+        Get keys for indexing features.
+
+        Returns:
+            list: List of keys.
+        """
         keys = []
         for idx in range(len(self.df)):
             path, patient, series, frame = self.info[idx]
             frames = get_frames(
-                frame, 1, self.frames_chanel, stride=1, max_frame=self.max_frames[series]
+                frame,
+                1,
+                self.frames_chanel,
+                stride=1,
+                max_frame=self.max_frames[series],
             )
             key = f'{patient}_{series}_{"-".join(list(frames.astype(str)))}'
             keys.append(key)
         return keys
 
     def _getitem_feature(self, idx):
+        """
+        Item accessor for features.
+
+        Args:
+            idx (int): Index.
+
+        Returns:
+            np.ndarray: Features.
+            int: Dummy value.
+            int: Dummy value.
+        """
         path, patient, series, frame = self.info[idx]
-        
+
         all_frames = get_frames(
-            frame, self.n_frames, self.frames_chanel, stride=self.stride, max_frame=self.max_frames[series]
+            frame,
+            self.n_frames,
+            self.frames_chanel,
+            stride=self.stride,
+            max_frame=self.max_frames[series],
         )
         all_frames = all_frames.reshape(-1, 3)
-        
+
         fts = []
         for frames in all_frames:
             key = f'{patient}_{series}_{"-".join(list(frames.astype(str)))}'
@@ -78,14 +125,15 @@ class AbdominalInfDataset(Dataset):
     def __getitem__(self, idx):
         """
         Item accessor.
+        Refer to _getitem_feature if features are precomputed.
 
         Args:
             idx (int): Index.
 
         Returns:
-            torch.Tensor: Image as a tensor of shape [C, H, W].
-            torch.Tensor: Mask as a tensor of shape [1 or 7, H, W].
-            torch.Tensor: Label as a tensor of shape [1].
+            torch.Tensor: Image as a tensor.
+            int: Dummy value.
+            int: Dummy value.
         """
         if len(self.features):
             return self._getitem_feature(idx)
@@ -98,7 +146,6 @@ class AbdominalInfDataset(Dataset):
             self.frames_chanel,
             stride=1,
             max_frame=self.max_frames[series],
-#             min_frame=self.min_frames[series]
         )
 
         image = self.imgs[np.array(frames)]
@@ -129,6 +176,7 @@ def predict(
         device (str, optional): Device for inference, 'cuda' or 'cpu'. Defaults to 'cuda'.
         use_fp16 (bool, optional): Whether to use mixed-precision (FP16) inference. Defaults to False.
         num_workers (int, optional): Number of worker threads for data loading. Defaults to 8.
+        resize (tuple, optional): Size to resize images to. Defaults to None.
 
     Returns:
         np array [N x C]: Predicted probabilities for each class for each sample.
@@ -147,14 +195,11 @@ def predict(
                 img = img.cuda()
 
                 if resize is not None:
-                    img = F.interpolate(
-                        img, size=resize, mode="bilinear"
-                    )
+                    img = F.interpolate(img, size=resize, mode="bilinear")
 
                 y_pred = model(img)
                 if isinstance(y_pred, tuple):
                     y_pred = y_pred[0]
-#                 y_pred = torch.zeros((img.size(0), 11)).cuda()
 
             # Get probabilities
             if loss_config["activation"] == "sigmoid":

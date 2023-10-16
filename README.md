@@ -1,32 +1,66 @@
-# 2nd Place Solution to the Google Research - Identify Contrails to Reduce Global Warming Competition
+# 2nd Place Solution to the RSNA 2023 Abdominal Trauma Detection Competition
 
-**Authors :** [Theo Viel](https://github.com/TheoViel), [Iafoss](https://github.com/iafoss), [DrHB](https://github.com/DrHB)
+**Authors :** [Theo Viel](https://github.com/TheoViel)
 
-## Introduction - Adapted from [Kaggle](https://www.kaggle.com/competitions/google-research-identify-contrails-reduce-global-warming/discussion/430491)
+## Introduction - Adapted from [Kaggle](https://www.kaggle.com/competitions/rsna-2023-abdominal-trauma-detection/discussion/447453)
 
-This repository contains Theo's part of the solution. Only the efficientet_v2-s trained with external data is used in the final solution, and achieves private LB 0.700 in a 10-seeds ensemble. Adding the 2.5D models (5x convnext-v2-nano + 5x v2-s) boosts the ensemble to 0.706 private.
+This repository contains code to reproduce the 2nd place solution, achieving private LB 0.35.
 
-![](contrails_v2s.png)
+Pipeline is below. It has two components: 
+-	2D models + RNN, where the frame-level labels are inferred using organ visibility classification when needed. 
+-	Crop models for kidney / liver / spleen. Results are fed to the RNN after pooling.
 
-### Details
+![](pipe.png)
 
-This competition has two main challenges: (1) noisy labels and (2) pixel-level accuracy requirements. (1) If one checks the annotation from all annotators, a major disagreement is quite apparent. Fortunately, this label noise challenge may be addressed only by using soft labels (the average of all annotator labels) during training. Since the evaluation requires hard labels, the major model failure is predicting contrails near the decision boundary, and it cannot be avoided. (2) The thing that could really be addressed by the models is achieving the pixel-level accuracy of predictions. For such a task, a typical solution is upsampling the input of the model or replacing the final linear upsampling in segmentation models with conv or pixel shuffle upsampling. This modification gave us a substantial boost in initial experiments.
+### 2D models 
 
-### Data
+The key to achieve good performance with 2D models is cleverly sampling frames to feed meaningful information and reduce label noise.
+To do so, I use a simple but fast `efficientnetv2_rw_t` to infer which organs are present on every frame. During training, frames are sampled the following way:
+- kidney / liver / spleen / negative bowel : Pick a random frame inside the organ.
+- positive bowel / positive extravasation : Use the frame-level labels.
+- Negative extravasation : Sample anywhere
 
-Our solution is based on false color images: band 14, and the difference between bands 12-14 and 14-15. We tried to consider more bands, but it was not helpful. The reason may be that annotators used the same input in their work. The input to the model was upscaled to 512 or 1024 with bicubic interpolation, while Efnet models were modified to have a stride of 1 in the first convolution and used a 256 input size. In our experiments, we realized that flip and 90 rotation augmentation are decreasing the model performance (though we didn't realize that the masks are shifted). Therefore, we trained the models with pixel-based augmentation + small angle rotation
+This model extracts probabilities for every 1/2 frame in the stack, and a RNN is trained on top to aggregate results. 
 
-### Model
+**Details :**
+- Heavy augmentations (HFlip, ShiftScaleRotate, Color augs, Blur augs, ElasticTransform) + cutmix (`p=0.5`)
+- `maxvit_tiny_tf_512` was best. `convnextv2_tiny` and `maxvit_tiny_tf_384` were also great. 
+- Ranger optimizer, `bs=32`, 40 epochs, `lr=4e-5`
+- Only 3D info is the 3 adjacent frames used as channels.
+- 11 classes : `[bowel/extravasation]_injury`(BCE optimized). And `[kidney/liver/spleen]_[healthy/low/high]`  optimized with the cross entropy.
 
-The interesting thing about this competition is that the model is required to do both (1) tracking the global dependencies because contrails are quite elongated, and (2) capable of generating predictions with pixel-level accuracy because contrails are only several pixels thick (even mistakes in a single pixel may lead to a tremendous decrease of the model performance).
+### Crop models
 
-In the [organizer's paper](https://arxiv.org/pdf/2304.02122.pdf), it is suggested that consideration of image sequence is preferable in comparison to single frame models. Also, the instruction to annotators requires the contrails to be present in at least 2 frames. Therefore, we considered image sequences, like the 0th-5th frame or 3rd-6th frames. In our early experiments, it became apparent that 3d and video models are not expected to work for the considered data: the time delay between input frames is too huge, and the images shift too much. Therefore, the reasonable choice was using 2d models with temporal mixing at feature maps followed by standard Unet style upscaling. Consideration of high-resolution feature maps is also not meaningful when clouds shift by 30+ pixels between frames (we upscale the input). So we considered temporal mixing only at res/32 and res/16 feature maps. The best mixing strategy based on our experiments was using LSTM. Unfortunately, LSTM assumes spatial alignment of features, and we tried to use a transformer applied to flattened token sequence from all frames at res/32 and res/16 to do implicit image registration and contrails tracking, but it worked slightly worse. We also considered conv-based temporal mixing.
+Strategy is similar : key is to feed to the model crops where the information is located. In that case, I used a 3D `resnet18` to crop the organs, and feed the crop to a 2D CNN + RNN model. It improves performances on kidney, liver and spleen by a good margin. 
 
-The model setup is schematically illustrated bellow. We process all input images with the backbone and then apply temporal mixing at res/16 feature scales. For other feature maps, we just pool the 5th frame output without mixing with others. This part is followed with vanilla U-Net decoder.
+**Details :**
+- Same augmentations with more cutmix (`p=1.`)
+- Ranger optimizer, `bs=8`, 20 epochs, `lr=2e-5`
+- Best model uses 11 frames sampled uniformly in the organ. I used different number of frames for ensembling.
+- `coatnet_1_rw_224` + RNN was best. I used different heads (RNN + attention, transformers) and other models CoatNet variants for ensembling.
+- 3 class cross-entropy loss.
 
-### Training
+### RNN model
 
-EfficientNet models were trained with AdamW. Typical training takes ~30 epochs, and 100 or 200 epochs when using external data. Code for training convnext models is also provided. We used BCE + dice Lovasz loss. The latter contribution is a modification of standard Lovasz (symmetric one with elu+1) to approximate dice instead of IoU. This component is using global statistics to approximate global dice used in the competition. Lovasz loss made our predictions less susceptible to the threshold selection making the maximum of dice wider. Given the nosy nature of CV and LB, this property is quite important for stable CV and avoiding shakeups at private LB, even if we saw only a minor improvement at CV when added Lovasz term.
+It is trained separately. Its role is to aggregate information from previous model, and optimize the competition metric directly.
+
+**Details :**
+- Restrict stack size to 600 (for faster loading), use 1/2 frame (for faster 2D inference). Sequences are then resized to 200 for batching. 
+- Heavily tweaked LSTM architecture :
+  - 1x Dense + Bidi-LSTM for the 2D models probabilities. Input is the concatenation of the segmentation proba (`size=5`), the classification probas (`size=11 x n_models`), and the classification probas multiplied by the associated segmentation (`size=11 x n_models`)
+  - Pool using probabilities predicted by the segmentation model to get organ-conditioned features.
+  - Use the mean and max pooling of the `22 x n_models` 2D classification features
+  - Independent per organ logits, which have access to the corresponding pooled features. For instance the kidney logits sees only the crop features for the kidney (`3x n_crop_models` fts) , the RNN features pooled using the kidney segmentation, and the `6 x n_models` pooled 2D features for the kidney class.
+- AdamW optimizer, `bs=64`, 10 epochs, `lr=4e-5`
+
+
+### Scores : 
+- 2D Classification + RNN :
+ - Using ConvNext-v2: **Public 0.41** - **Private 0.39**
+- Add the crop model:
+ - MaxVit (instead of ConvNext) +  CoatNet-RNN : **Public 0.37** - **Private 0.35** (best private)
+- Ensemble:
+ - 3x2D models, 8x 2.5D models : **Public 0.35** - **Private 0.35**
 
 
 ## How to use the repository
@@ -36,31 +70,15 @@ EfficientNet models were trained with AdamW. Typical training takes ~30 epochs, 
 - Clone the repository
 
 - Download the data in the `input` folder:
-  - [Competition data](https://www.kaggle.com/competitions/google-research-identify-contrails-reduce-global-warming/data)
+  - [Competition data](https://www.kaggle.com/competitions/google-research-identify-contrails-reduce-global-warming/data). You can skip the dicoms and use the preprocessed data.
+  - [Preprocessed data](https://www.kaggle.com/competitions/rsna-2023-abdominal-trauma-detection/discussion/427427)
 
-- (Optional) Download the pseudo-labeled masks and images from GOES16 in the `output` folder: 
-  - [Images](https://www.kaggle.com/datasets/theoviel/contrails-goes16-img-1)
-  - [Masks](https://www.kaggle.com/datasets/theoviel/contrails-goes16-mask-1)
-
-Structure should be :
-```
-output
-├── goes16_pl
-│   ├── images
-│   │   ├── 121_00_202312199999293.png
-│   │   └── ...
-│   └── masks
-│       ├── 121_00_202312199999293.npy
-│       └── ...
-└── df_goes16_may.csv
-```
 
 - Setup the environment :
   - `pip install -r requirements.txt`
 
-- We also provide trained model weights :
-  - [2.5D Models](https://www.kaggle.com/datasets/theoviel/contrail-weights-v1)
-  - [2D Models](https://www.kaggle.com/datasets/theoviel/contrail-weights-2d)
+- I also provide trained model weights :
+  - [Link](https://www.kaggle.com/datasets/theoviel/rsna-abdomen-weights-1). Refer to cell 10 of [this notebook](https://www.kaggle.com/code/theoviel/rsna-abdominal-inf?scriptVersionId=146119491)
 
 
 ### Run The pipeline

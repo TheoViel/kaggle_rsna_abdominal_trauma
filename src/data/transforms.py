@@ -64,15 +64,18 @@ def distortion_transforms(p=0.5):
 
 def get_transfos(augment=True, resize=None, crop=False, mean=0, std=1, strength=1):
     """
-    Returns transformations. todo
+    Returns transformations.
 
     Args:
         augment (bool, optional): Whether to apply augmentations. Defaults to True.
+        resize (tuple, optional): If not None, target image size as a tuple (height, width). Defaults to None.
+        crop (bool, optional): Whether to perform center cropping. Defaults to False.
         mean (np array, optional): Mean for normalization. Defaults to 0.
         std (np array, optional): Standard deviation for normalization. Defaults to 1.
+        strength (int, optional): Augmentation strength level. Defaults to 1.
 
     Returns:
-        albumentation transforms: transforms.
+        albumentation transforms: Transforms.
     """
     if resize is None:
         resize_aug = []
@@ -80,23 +83,30 @@ def get_transfos(augment=True, resize=None, crop=False, mean=0, std=1, strength=
         resize_aug = [albu.Resize(resize[0], resize[1])]
     else:
         if resize[0] == 384:
-            resize_aug = [albu.Compose([
-                albu.LongestMaxSize(512),
-                albu.PadIfNeeded(resize[0], resize[1], border_mode=0),
-                albu.CenterCrop(resize[0], resize[1]),
-            ])]
+            resize_aug = [
+                albu.Compose(
+                    [
+                        albu.LongestMaxSize(512),
+                        albu.PadIfNeeded(resize[0], resize[1], border_mode=0),
+                        albu.CenterCrop(resize[0], resize[1]),
+                    ]
+                )
+            ]
         else:
-            resize_aug = [albu.Compose([
-                albu.LongestMaxSize(512),
-                albu.PadIfNeeded(384, 384, border_mode=0),
-                albu.CenterCrop(384, 384),
-                albu.Resize(resize[0], resize[1])
-            ])]
+            resize_aug = [
+                albu.Compose(
+                    [
+                        albu.LongestMaxSize(512),
+                        albu.PadIfNeeded(384, 384, border_mode=0),
+                        albu.CenterCrop(384, 384),
+                        albu.Resize(resize[0], resize[1]),
+                    ]
+                )
+            ]
 
     normalizer = albu.Compose(
         resize_aug
         + [
-            #             albu.Normalize(mean=mean, std=std),
             ToTensorV2(),
         ],
         p=1,
@@ -146,8 +156,8 @@ def get_transfos(augment=True, resize=None, crop=False, mean=0, std=1, strength=
             augs = [
                 albu.HorizontalFlip(p=0.5),
                 albu.ShiftScaleRotate(
-                    scale_limit=0.,
-                    shift_limit=0.,
+                    scale_limit=0.0,
+                    shift_limit=0.0,
                     rotate_limit=45,
                     p=0.75,
                 ),

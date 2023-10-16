@@ -1,8 +1,5 @@
 import gc
-import glob
-import json
 import torch
-import operator
 import numpy as np
 import pandas as pd
 from torch.nn.parallel import DistributedDataParallel
@@ -15,20 +12,24 @@ from util.metrics import rsna_loss
 from util.torch import seed_everything, count_parameters, save_model_weights
 
 
-def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=None, run=None):
+def train(
+    config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=None, run=None
+):
     """
-    Trains and validate a model.
+    Train a level 2 model.
 
     Args:
-        config (Config): Parameters.
-        df_train (pandas dataframe): Training metadata.
-        df_val (pandas dataframe): Validation metadata.
-        fold (int): Selected fold.
-        log_folder (None or str, optional): Folder to logs results to. Defaults to None.
-        run (neptune.Run): Nepture run. Defaults to None.
+        config (Config): Configuration parameters for training.
+        df_train (pandas DataFrame): Metadata for training dataset.
+        df_val (pandas DataFrame): Metadata for validation dataset.
+        df_img_train (pandas DataFrame): Metadata containing image information for training.
+        df_img_val (pandas DataFrame): Metadata containing image information for validation.
+        fold (int): Fold number for cross-validation.
+        log_folder (str, optional): Folder for saving logs. Defaults to None.
+        run: Neptune run. Defaults to None.
 
     Returns:
-        dict: Dice scores at different thresholds.
+        tuple: A tuple containing predictions and metrics.
     """
     train_dataset = PatientFeatureDataset(
         df_train,
@@ -114,27 +115,22 @@ def train(config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=N
     return preds, preds_aux
 
 
-def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
+def k_fold(config, df, df_img, log_folder=None, run=None):
     """
-    Trains a k-fold.
+    Perform k-fold cross-validation training for a level 2 model.
 
     Args:
-        config (Config): Parameters.
-        df (pandas dataframe): Metadata.
-        df_extra (pandas dataframe or None, optional): Extra metadata. Defaults to None.
-        log_folder (None or str, optional): Folder to logs results to. Defaults to None.
-        run (None or Nepture run): Nepture run. Defaults to None.
-
-    Returns:
-        dict: Dice scores at different thresholds.
+        config (dict): Configuration parameters for training.
+        df (pandas DataFrame): Main dataset metadata.
+        df_img (pandas DataFrame): Metadata containing image information.
+        log_folder (str, optional): Folder for saving logs. Defaults to None.
+        run: Neptune run. Defaults to None.
     """
     folds = pd.read_csv(config.folds_file)
     df = df.merge(folds, how="left")
     df_img = df_img.merge(folds, how="left")
-    
+
     pred_oof, pred_oof_aux = [], []
-#     pred_oof = np.zeros((len(df), config.num_classes))
-#     pred_oof_aux = np.zeros((len(df), config.num_classes_aux))
     for fold in range(config.k):
         if fold in config.selected_folds:
             if config.local_rank == 0:
@@ -143,23 +139,29 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
                 )
             seed_everything(config.seed + fold)
 
-            df_train = df[df['fold'] != fold].reset_index(drop=True)
-            df_val = df[df['fold'] == fold].reset_index(drop=True)
-            val_idx = list(df[df["fold"] == fold].index)
-            
-            df_img_train = df_img[df_img['fold'] != fold].reset_index(drop=True)
-            df_img_val = df_img[df_img['fold'] == fold].reset_index(drop=True)
+            df_train = df[df["fold"] != fold].reset_index(drop=True)
+            df_val = df[df["fold"] == fold].reset_index(drop=True)
+
+            df_img_train = df_img[df_img["fold"] != fold].reset_index(drop=True)
+            df_img_val = df_img[df_img["fold"] == fold].reset_index(drop=True)
 
             if len(df) <= 1000:
                 df_train, df_val = df, df
                 df_img_train, df_img_val = df_img, df_img
 
             preds, preds_aux = train(
-                config, df_train, df_val, df_img_train, df_img_val, fold, log_folder=log_folder, run=run
+                config,
+                df_train,
+                df_val,
+                df_img_train,
+                df_img_val,
+                fold,
+                log_folder=log_folder,
+                run=run,
             )
-            
+
             if log_folder is None:
-                return preds, preds_aux 
+                return preds, preds_aux
 
             if config.local_rank == 0:
                 np.save(log_folder + f"pred_val_{fold}", preds)
@@ -167,7 +169,7 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
 
     if config.local_rank == 0:
         df_oof, pred_oof = retrieve_preds(df, df_img, config, log_folder)
-        
+
         np.save(log_folder + "pred_oof.npy", pred_oof)
         df_oof.to_csv(log_folder + "df_oof.csv", index=False)
 
@@ -176,7 +178,7 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
         print()
         for k, v in losses.items():
             print(f"- {k.split('_')[0][:8]} loss\t: {v:.3f}")
-        print(f'\n -> CV Score : {avg_loss :.4f}')
+        print(f"\n -> CV Score : {avg_loss :.4f}")
 
         if run is not None:
             run["global/logs"].upload(log_folder + "logs.txt")
@@ -210,13 +212,29 @@ def k_fold(config, df, df_img, df_extra=None, log_folder=None, run=None):
     return pred_oof, pred_oof_aux
 
 
-def retrieve_preds(df_patient, df_img, config, exp_folder, custom_agg=False, folds=None):
+def retrieve_preds(
+    df_patient, df_img, config, exp_folder, custom_agg=False, folds=None
+):
+    """
+    Retrieve and aggregate model predictions for patients during evaluation.
+
+    Args:
+        df_patient (pandas DataFrame): Metadata containing patient information.
+        df_img (pandas DataFrame): Metadata containing image information.
+        config (dict): Configuration parameters for the retrieval process.
+        exp_folder (str): Folder containing saved predictions.
+        custom_agg (bool, optional): Perform custom aggregation. Defaults to False.
+        folds (list, optional): List of folds to retrieve predictions from. Defaults to None.
+
+    Returns:
+        pandas DataFrame: Aggregated patient-level prediction information.
+        numpy.ndarray: Model predictions for patient-level targets.
+    """
     dfs = []
     for fold in config.selected_folds if folds is None else folds:
+        df_val = df_patient[df_patient["fold"] == fold]
 
-        df_val = df_patient[df_patient['fold'] == fold]
-
-        dataset = PatientFeatureDataset(df_val, df_img[df_img['fold'] == fold], [])
+        dataset = PatientFeatureDataset(df_val, df_img[df_img["fold"] == fold], [])
         patients = [d[0] for d in dataset.ids]
         df_preds = pd.DataFrame({"patient_id": patients})
 
@@ -224,31 +242,19 @@ def retrieve_preds(df_patient, df_img, config, exp_folder, custom_agg=False, fol
 
         preds_cols = []
         for i in range(preds.shape[1]):
-            preds_cols.append(f'pred_{i}')
-            df_preds[f'pred_{i}'] = preds[:, i]
+            preds_cols.append(f"pred_{i}")
+            df_preds[f"pred_{i}"] = preds[:, i]
 
         if custom_agg:
-            df_preds_avg = df_preds.groupby('patient_id').mean()
-            df_preds_max = df_preds.groupby('patient_id').max()
-            
+            df_preds_avg = df_preds.groupby("patient_id").mean()
+            df_preds_max = df_preds.groupby("patient_id").max()
+
             df_preds = df_preds_avg.copy()
-            df_preds['pred_0'] = df_preds_max['pred_0']
-#             df_preds['pred_3'] = df_preds_max['pred_3']
-#             df_preds['pred_4'] = df_preds_max['pred_4']
-#             df_preds['pred_2'] = 1 - df_preds['pred_3'] - df_preds['pred_4']
-            
-#             df_preds['pred_6'] = df_preds_max['pred_6']
-#             df_preds['pred_7'] = df_preds_max['pred_7']
-#             df_preds['pred_5'] = 1 - df_preds['pred_6'] - df_preds['pred_7']
-            
-#             df_preds['pred_9'] = df_preds_max['pred_9']
-#             df_preds['pred_10'] = df_preds_max['pred_10']
-#             df_preds['pred_8'] = 1 - df_preds['pred_10'] - df_preds['pred_9']
+            df_preds["pred_0"] = df_preds_max["pred_0"]
         else:
-            df_preds = df_preds.groupby('patient_id').mean()
+            df_preds = df_preds.groupby("patient_id").mean()
         df = df_val.merge(df_preds, on="patient_id")
-        
-        
+
         dfs.append(df)
 
     df_oof = pd.concat(dfs, ignore_index=True)

@@ -1,7 +1,6 @@
 import gc
 import time
 import torch
-import operator
 import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
@@ -26,6 +25,24 @@ def evaluate(
     world_size=0,
     local_rank=0,
 ):
+    """
+    Evaluate the model on the validation set.
+
+    Args:
+        model (nn.Module): The model to evaluate.
+        val_loader (DataLoader): DataLoader for the validation set.
+        loss_config (dict): Configuration parameters for the loss function.
+        loss_fct (nn.Module): The loss function to compute the evaluation loss.
+        use_fp16 (bool, optional): Whether to use mixed precision training. Defaults to False.
+        distributed (bool, optional): Whether to use distributed training. Defaults to False.
+        world_size (int, optional): Number of processes in distributed training. Defaults to 0.
+        local_rank (int, optional): Local process rank in distributed training. Defaults to 0.
+
+    Returns:
+        preds (torch.Tensor): Predictions.
+        preds_aux (torch.Tensor): Auxiliary Predictions.
+        val_loss (float): Validation loss.
+    """
     model.eval()
     val_losses = []
     preds, preds_aux = [], []
@@ -34,7 +51,7 @@ def evaluate(
         for x, y, y_aux in val_loader:
             with torch.cuda.amp.autocast(enabled=use_fp16):
                 if isinstance(x, dict):
-                    y_pred, y_pred_aux = model(x['x'].cuda(), ft=x['ft'].cuda())
+                    y_pred, y_pred_aux = model(x["x"].cuda(), ft=x["ft"].cuda())
                 else:
                     y_pred, y_pred_aux = model(x.cuda())
 
@@ -117,7 +134,6 @@ def fit(
         epochs (int, optional): Number of training epochs. Defaults to 1.
         verbose_eval (int, optional): Number of steps for verbose evaluation. Defaults to 1.
         use_fp16 (bool, optional): Whether to use mixed precision training. Defaults to False.
-        model_soup (bool, optional): Whether to save model weights for soup. Defaults to False.
         distributed (bool, optional): Whether to use distributed training. Defaults to False.
         local_rank (int, optional): Local process rank in distributed training. Defaults to 0.
         world_size (int, optional): Number of processes in distributed training. Defaults to 1.
@@ -163,13 +179,13 @@ def fit(
         mix = Cutmix(
             data_config["mix_alpha"],
             data_config["additive_mix"],
-            data_config["num_classes"]
+            data_config["num_classes"],
         )
     else:
         mix = Mixup(
             data_config["mix_alpha"],
             data_config["additive_mix"],
-            data_config["num_classes"]
+            data_config["num_classes"],
         )
 
     auc, rsna_loss = 0, 0
@@ -190,7 +206,7 @@ def fit(
             y_aux = y_aux.cuda()
 
             mix_p = (
-                ((epochs - epoch) / epochs)  * data_config["mix_proba"]
+                ((epochs - epoch) / epochs) * data_config["mix_proba"]
                 if data_config["sched"]
                 else data_config["mix_proba"]
             )
@@ -200,13 +216,13 @@ def fit(
             with torch.cuda.amp.autocast(enabled=use_fp16):
                 if isinstance(x, dict):
                     y_pred, y_pred_aux = model(
-                        x['x'].cuda(),
-                        ft=x['ft'].cuda(),
-                        x_other=x['other_x'].cuda(),
+                        x["x"].cuda(),
+                        ft=x["ft"].cuda(),
+                        x_other=x["other_x"].cuda(),
                     )
                 else:
                     y_pred, y_pred_aux = model(x)
-                
+
                 loss = loss_fct(y_pred, y_pred_aux, y, y_aux)
 
             scaler.scale(loss).backward()
@@ -257,36 +273,51 @@ def fit(
                     lr = scheduler.get_last_lr()[0]
                     step_ = step * world_size
 
-                    preds, preds_aux = preds[:len(val_dataset)], preds_aux[:len(val_dataset)]
+                    preds, preds_aux = (
+                        preds[: len(val_dataset)],
+                        preds_aux[: len(val_dataset)],
+                    )
                     if preds.shape[1] in [2, 4, 5]:  # image level or seg-cls
                         if isinstance(val_dataset, AbdominalDataset):
                             auc = roc_auc_score_organs(preds, val_dataset)
                         else:
-                            auc = np.mean([
-                                roc_auc_score(val_dataset.img_targets[:, i], preds[:, i])
-                                for i in range(preds.shape[1])
-                            ])
+                            auc = np.mean(
+                                [
+                                    roc_auc_score(
+                                        val_dataset.img_targets[:, i], preds[:, i]
+                                    )
+                                    for i in range(preds.shape[1])
+                                ]
+                            )
                     elif preds.shape[1] == 1:
-#                         print(preds)
-                        auc = roc_auc_score(val_dataset.targets.flatten(), preds.flatten())
+                        #                         print(preds)
+                        auc = roc_auc_score(
+                            val_dataset.targets.flatten(), preds.flatten()
+                        )
                     elif preds.shape[1] == 3:  # Organ level kidney / liver / spleen
-                        auc = np.mean([
-                            roc_auc_score(val_dataset.targets == i, preds[:, i])
-                            for i in range(preds.shape[1])
-                        ])
+                        auc = np.mean(
+                            [
+                                roc_auc_score(val_dataset.targets == i, preds[:, i])
+                                for i in range(preds.shape[1])
+                            ]
+                        )
                     else:
                         if isinstance(val_dataset, PatientFeatureDataset):
-                            rsna_losses, rsna_loss = rsna_score_study(preds, val_dataset)
+                            rsna_losses, rsna_loss = rsna_score_study(
+                                preds, val_dataset
+                            )
                         elif isinstance(val_dataset, AbdominalDataset):
                             try:
-                                rsna_losses, rsna_loss = rsna_score_organs(preds, val_dataset)
-                            except:
+                                rsna_losses, rsna_loss = rsna_score_organs(
+                                    preds, val_dataset
+                                )
+                            except Exception:
                                 rsna_loss = 0
                             try:
                                 auc = roc_auc_score_organs(preds, val_dataset)
-                            except:
+                            except Exception:
                                 auc = 0
-                            
+
                         else:
                             raise NotImplementedError
 
@@ -316,7 +347,7 @@ def fit(
 
     if distributed:
         torch.distributed.barrier()
-        
+
     metrics = {"auc": auc, "rsna_loss": rsna_loss}
     metrics.update(rsna_losses)
 

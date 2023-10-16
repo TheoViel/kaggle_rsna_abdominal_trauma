@@ -21,6 +21,7 @@ class OrderedDistributedSampler(Sampler):
         __iter__(): Returns an iterator over the indices of the samples for the current process.
         __len__(): Returns the number of samples per process.
     """
+
     def __init__(self, dataset, num_replicas=None, rank=None):
         """
         Constructor.
