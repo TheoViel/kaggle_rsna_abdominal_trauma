@@ -76,6 +76,17 @@ It is trained separately. Its role is to aggregate information from previous mod
   - [Preprocessed segs & dataframes](https://www.kaggle.com/datasets/theoviel/rsna-abdominal-prepro-data/)
 
 
+Structure should be :
+```
+input
+├── 3ds  # Preprocessed masks
+│   ├── imgs
+│   └── segs
+├── imgs  # Preprocessed images
+│   └── <all files from the preprocessed images datasets>.png
+└── <csv files>.csv
+```
+
 - Setup the environment :
   - `pip install -r requirements.txt`
 
@@ -90,8 +101,23 @@ It is trained separately. Its role is to aggregate information from previous mod
 Most of the preprocessed data is already shared. However running the notebook `notebooks/Segmentation_3d.ipynb` is required since masks were too big to upload to kaggle.
 
 
-#### Training
+After running the data preparation pipeline, structure should be :
+```
+input
+├── crops  # Crops for training crop models - 
+│   └── imgs
+│      └── <patient_study_organ>.npy
+├── 3ds  # Preprocessed masks
+│   ├── imgs
+│   └── segs
+├── imgs  # Preprocessed images
+│   └── <all files from the preprocessed images datasets>.png
+├── masks  # Masks inferred by the 3D model
+│   └── <patient_study>.npy
+└── <csv files>.csv
+```
 
+#### Training
 
 - `bash seg_cls.sh` will train the 2D organ classification model. This is optional as I provide the segmentation metadata.
 - `bash train.sh` will train a `maxvit_tiny_tf_512` 2D classification model.
