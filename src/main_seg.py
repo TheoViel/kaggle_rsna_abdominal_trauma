@@ -1,15 +1,15 @@
+import argparse
 import os
 import time
-import torch
 import warnings
-import argparse
+
 import pandas as pd
+import torch
 
 from data.preparation import prepare_seg_data
-from util.torch import init_distributed
-from util.logger import create_logger, save_config, prepare_log_folder
-
 from params import DATA_PATH
+from util.logger import create_logger, prepare_log_folder, save_config
+from util.torch import init_distributed
 
 
 def parse_args():

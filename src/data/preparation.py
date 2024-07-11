@@ -5,10 +5,10 @@ import nibabel
 import numpy as np
 import pandas as pd
 
-from params import SEG_TARGETS, CROP_TARGETS
+from params import SEG_TARGETS, CROP_TARGETS, DATA_PATH
 
 
-def prepare_folds(data_path="../input/", k=4):
+def prepare_folds(data_path=DATA_PATH, k=4):
     """
     Prepare data folds for cross-validation.
     MultilabelStratifiedKFold is used.
@@ -47,7 +47,7 @@ def prepare_folds(data_path="../input/", k=4):
     return df_folds
 
 
-def prepare_data(data_path="../input/", with_seg=True):
+def prepare_data(data_path=DATA_PATH, with_seg=True):
     """
     Prepare data for 2D classification.
 
@@ -82,7 +82,7 @@ def prepare_data(data_path="../input/", with_seg=True):
     return df_patient, df_img
 
 
-def prepare_seg_data(data_path="", use_3d=False):
+def prepare_seg_data(data_path=DATA_PATH, use_3d=False):
     """
     Prepare data for segmentation.
 

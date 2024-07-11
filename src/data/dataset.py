@@ -1,11 +1,11 @@
 import cv2
-import torch
 import numpy as np
+import torch
 import torch.nn.functional as F
-
 from torch.utils.data import Dataset
+
 from data.preparation import get_df_series
-from params import PATIENT_TARGETS, IMG_TARGETS_EXTENDED
+from params import IMG_TARGETS_EXTENDED, PATIENT_TARGETS
 
 
 def to_one_hot_patient(y):
@@ -52,9 +52,7 @@ def get_frames(frame, n_frames, frames_c, stride=1, max_frame=100):
         numpy.ndarray: An array of frame indices representing the calculated sequence.
     """
     if stride == -1:
-        frames = np.linspace(0, max_frame, n_frames + 4, endpoint=True, dtype=int)[
-            2:-2
-        ]
+        frames = np.linspace(0, max_frame, n_frames + 4, endpoint=True, dtype=int)[2:-2]
 
     else:
         frames = np.arange(n_frames) * stride
@@ -89,6 +87,7 @@ class AbdominalDataset(Dataset):
         targets (numpy.ndarray): Array of patient targets.
         max_frames (dict): Dictionary of maximum frames per series.
     """
+
     def __init__(
         self,
         df_patient,
@@ -187,10 +186,7 @@ class AbdominalDataset(Dataset):
         if self.train:
             ps = np.exp(
                 -(
-                    (
-                        (np.arange(len(df_img)) - len(df_img) // 2)
-                        / (0.4 * len(df_img))
-                    )
+                    ((np.arange(len(df_img)) - len(df_img) // 2) / (0.4 * len(df_img)))
                     ** 2
                 )
             )  # gaussian
@@ -220,7 +216,13 @@ class AbdominalDataset(Dataset):
 
             prefix = row.path.rsplit("_", 1)[0]
             paths = [prefix + f"_{f:04d}.png" for f in frames]
-            image = np.array([cv2.imread(path, 0) for path in paths]).transpose(1, 2, 0)
+            target_size = (512, 512)
+
+            images = [cv2.resize(cv2.imread(path, 0), target_size) for path in paths]
+            image = np.array(images).transpose(1, 2, 0)
+
+            # print("image_shape", image.shape)
+            # image = np.array([cv2.imread(path, 0) for path in paths]).transpose(1, 2, 0)
 
         else:
             frame = row.frame
@@ -231,18 +233,16 @@ class AbdominalDataset(Dataset):
         if self.transforms:
             transformed = self.transforms(image=image)
             image = transformed["image"]
-
+            print("after transform: ", image.shape)
         y_patient = torch.tensor(y_patient, dtype=torch.float)
         y_img = torch.tensor(row[self.classes], dtype=torch.float)
-
+        print("done 238")
         if y_img.size(-1) == 5:  # Patient level - TODO : y_patient ?
             y_img = to_one_hot_patient(y_img.unsqueeze(0))[0]
-
+        print("done 241")
         if self.n_frames > 1:
             if self.frames_chanel:
-                image = image.view(
-                    self.n_frames, 3, image.size(1), image.size(2)
-                )
+                image = image.view(self.n_frames, 3, image.size(1), image.size(2))
             else:
                 image = (
                     image.view(1, self.n_frames, image.size(1), image.size(2))
@@ -252,7 +252,7 @@ class AbdominalDataset(Dataset):
         else:
             if not self.frames_chanel:
                 image = image.repeat(3, 1, 1)
-
+        print("done 254")
         return image, y_img, y_patient
 
 
@@ -271,6 +271,7 @@ class AbdominalCropDataset(Dataset):
         train (bool): Flag indicating whether the dataset is for training.
         sigmas (dict): Dictionary containing Gaussian sigmas for various organs.
     """
+
     def __init__(
         self,
         df_patient,
@@ -415,6 +416,7 @@ class AbdominalInfDataset(Dataset):
         features (list): List of precompted features.
         single_frame (bool): Flag indicating if only a single frame is used for each item.
     """
+
     def __init__(
         self,
         df,
@@ -576,9 +578,7 @@ class AbdominalInfDataset(Dataset):
         if not self.single_frame:
             if self.n_frames > 1:
                 if self.frames_chanel:
-                    image = image.view(
-                        self.n_frames, 3, image.size(1), image.size(2)
-                    )
+                    image = image.view(self.n_frames, 3, image.size(1), image.size(2))
                 else:
                     image = (
                         image.view(1, self.n_frames, image.size(1), image.size(2))
@@ -604,6 +604,7 @@ class SegDataset(Dataset):
         transforms (albu transforms): Transforms to apply to images and masks.
 
     """
+
     def __init__(
         self,
         df,
@@ -690,6 +691,7 @@ class Seg3dDataset(Dataset):
         train (bool): Flag indicating whether the dataset is used for training.
         test (bool): Flag indicating whether the dataset is used for testing.
     """
+
     def __init__(
         self,
         df,
@@ -810,6 +812,7 @@ class PatientFeatureDataset(Dataset):
         restrict (bool, optional): Flag to restrict feature length. Defaults to False.
         resize (tuple, optional): Tuple specifying the size for resizing features. Defaults to None.
     """
+
     def __init__(
         self,
         df_patient,
@@ -874,7 +877,8 @@ class PatientFeatureDataset(Dataset):
                         np.concatenate(
                             [
                                 ft[:, :1] * seg[:, -1:],  # bowel
-                                ft[:, 1:2] * seg.max(-1, keepdims=True),  # extravasation
+                                ft[:, 1:2]
+                                * seg.max(-1, keepdims=True),  # extravasation
                                 ft[:, 2:5] * kidney,  # kidney
                                 ft[:, 5:8] * seg[:, :1],  # liver
                                 ft[:, 8:] * seg[:, 1:2],  # spleen
@@ -959,9 +963,9 @@ class PatientFeatureDataset(Dataset):
             numpy.ndarray: Restricted features array.
         """
         if len(fts) > 400:
-            fts = fts[len(fts) // 6:]
+            fts = fts[len(fts) // 6 :]
         else:
-            fts = fts[len(fts) // 8:]
+            fts = fts[len(fts) // 8 :]
         return fts
 
     @staticmethod

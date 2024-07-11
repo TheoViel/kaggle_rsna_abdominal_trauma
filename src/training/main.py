@@ -35,6 +35,9 @@ def train(
     transfos = get_transfos(
         strength=config.aug_strength, resize=config.resize, crop=config.crop
     )
+    print("num frames: ", config.n_frames)
+    print("frame channel", config.frames_chanel)
+
     train_dataset = AbdominalDataset(
         df_train,
         df_img_train,
@@ -163,7 +166,7 @@ def k_fold(config, df, df_img, log_folder=None, run=None):
             if len(df) <= 1000:
                 df_train, df_val = df, df
                 df_img_train, df_img_val = df_img, df_img
-
+            print(">>>> code is updated ")
             preds, metrics = train(
                 config,
                 df_train,

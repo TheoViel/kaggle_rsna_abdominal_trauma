@@ -1,16 +1,20 @@
 import gc
 import glob
-import torch
+
 import pandas as pd
+import torch
 from torch.nn.parallel import DistributedDataParallel
 
-from training.train import fit
-from training.train_seg import fit as fit_seg
+from data.dataset import Seg3dDataset, SegDataset
+from data.transforms import get_transfos
 from model_zoo.models import define_model
 from model_zoo.models_seg import define_model as define_model_seg
-from data.dataset import SegDataset, Seg3dDataset
-from data.transforms import get_transfos
-from util.torch import seed_everything, count_parameters, save_model_weights
+from training.train import fit
+from training.train_seg import fit as fit_seg
+from util.torch import count_parameters, save_model_weights, seed_everything
+
+
+# TODO dot this or that
 
 
 def train(config, df_train, df_val, fold, log_folder=None, run=None):

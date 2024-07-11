@@ -1,14 +1,19 @@
+import argparse
 import os
 import time
-import torch
 import warnings
-import argparse
 
-from data.preparation import prepare_seg_data, prepare_data
-from util.torch import init_distributed
-from util.logger import create_logger, save_config, prepare_log_folder, get_last_log_folder
+import torch
 
+from data.preparation import prepare_data, prepare_seg_data
 from params import DATA_PATH
+from util.logger import (
+    create_logger,
+    get_last_log_folder,
+    prepare_log_folder,
+    save_config,
+)
+from util.torch import init_distributed
 
 
 def parse_args():
@@ -65,6 +70,15 @@ def parse_args():
         default=0.0,
         help="Weight decay",
     )
+    parser.add_argument(
+        "--pretrained_weights",
+        type=str,
+        default="",
+        help="path to the pretrained model",
+    )
+    parser.add_argument(
+        "--retrain", action="store_true", help="Whether to retrain the model"
+    )
     return parser.parse_args()
 
 
@@ -88,7 +102,7 @@ class Config:
 
     # k-fold
     k = 4
-    folds_file = f"../input/folds_{k}.csv"
+    folds_file = os.path.join(DATA_PATH, f"folds_{k}.csv")
     selected_folds = [0, 1, 2, 3]
 
     # Model
@@ -117,10 +131,10 @@ class Config:
         "activation_aux": "",
         "ousm_k": 0,  # todo ?
     }
-
+    BATCH_SIZE = 64
     data_config = {
-        "batch_size": 32,
-        "val_bs": 32,
+        "batch_size": BATCH_SIZE,
+        "val_bs": BATCH_SIZE,
         "mix": "mixup",
         "sched": False,
         "mix_proba": 0.0,
@@ -160,13 +174,14 @@ if __name__ == "__main__":
     if config.local_rank == 0:
         print("\nStarting !")
     args = parse_args()
-
+    distributed = False
     if not config.distributed:
         device = args.fold if args.fold > -1 else args.device
         time.sleep(device)
         print("Using GPU ", device)
         os.environ["CUDA_VISIBLE_DEVICES"] = str(device)
         assert torch.cuda.device_count() == 1
+        distributed = False
 
     log_folder = args.log_folder
     if not log_folder:
@@ -195,6 +210,9 @@ if __name__ == "__main__":
         config.data_config["batch_size"] = args.batch_size
         config.data_config["val_bs"] = args.batch_size
 
+    if args.pretrained_weights:
+        config.pretrained_weights = args.pretrained_weights
+
     if config.local_rank == 0:
         if args.fold > -1:
             config.selected_folds = [args.fold]
@@ -204,35 +222,41 @@ if __name__ == "__main__":
 
         save_config(config, log_folder + "config.json")
     if config.local_rank == 0:
-        print("Device :", torch.cuda.get_device_name(0), "\n")
+        if args.retrain:
+            print("args.retrain", args.retrain)
+            print("Device :", torch.cuda.get_device_name(0), "\n")
 
-        print(f"- Model {config.name}")
-        print(f"- Epochs {config.epochs}")
-        print(
-            f"- Learning rate {config.optimizer_config['lr']:.1e}   (n_gpus={config.world_size})"
-        )
-        print("\n -> Training\n")
-
+            print(f"- Model {config.name}")
+            print(f"- Epochs {config.epochs}")
+            print(
+                f"- Learning rate {config.optimizer_config['lr']:.1e}   (n_gpus={config.world_size})"
+            )
+            print("\n -> Training\n")
+        else:
+            print("\n -> Not Training again, check log_folder: ", log_folder)
+        # print("\n Print config: ", config.__dict__)
     df = prepare_seg_data(data_path=DATA_PATH)
-#     df = df.sample(100000).reset_index(drop=True)
+    #     df = df.sample(100000).reset_index(drop=True)
 
     from training.main_seg import k_fold
-    k_fold(config, df, log_folder=log_folder)
+
+    if args.retrain:
+        k_fold(config, df, log_folder=log_folder)
 
     if len(config.selected_folds) == 4:
         if config.local_rank == 0:
             print("\n -> Extracting features\n")
-        from inference.extract_features import kfold_inference
+
+        from inference.extract_features_new_3 import kfold_inference
 
         df_patient, df_img = prepare_data(DATA_PATH)
-
         kfold_inference(
             df_patient,
             df_img,
             log_folder,
             use_fp16=config.use_fp16,
             save=True,
-            distributed=True,
+            distributed=distributed,
             config=config,
         )
 

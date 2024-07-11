@@ -96,7 +96,8 @@ class Config:
 
     # k-fold
     k = 4
-    folds_file = f"../input/folds_{k}.csv"
+    folds_file = os.path.join(DATA_PATH, f"folds_{k}.csv")
+    # folds_file = f"../input/folds_{k}.csv"
     selected_folds = [0, 1, 2, 3]
 
     # Model
@@ -126,8 +127,8 @@ class Config:
     }
 
     data_config = {
-        "batch_size": 32 if n_frames <= 1 else 8,
-        "val_bs": 32 if n_frames <= 1 else 16,
+        "batch_size": 8 if n_frames <= 1 else 4,  # 32 if n_frames <= 1 else 8,
+        "val_bs": 8 if n_frames <= 1 else 4,  # 32 if n_frames <= 1 else 16,
         "mix": "cutmix",
         "mix_proba": 0.5,
         "sched": False,
@@ -158,10 +159,10 @@ class Config:
 
 if __name__ == "__main__":
     warnings.simplefilter("ignore", UserWarning)
-
     config = Config
     init_distributed(config)
 
+    config.distributed = False
     if config.local_rank == 0:
         print("\nStarting !")
     args = parse_args()
@@ -205,7 +206,7 @@ if __name__ == "__main__":
 
     run = None
     if config.local_rank == 0:
-        run = init_neptune(config, log_folder)
+        # run = init_neptune(config, log_folder)
 
         if args.fold > -1:
             config.selected_folds = [args.fold]
@@ -229,6 +230,7 @@ if __name__ == "__main__":
 
     from training.main import k_fold
 
+    print("value of run:", run)
     k_fold(config, df_patient, df_img, log_folder=log_folder, run=run)
 
     if len(config.selected_folds) == 4:
@@ -246,7 +248,7 @@ if __name__ == "__main__":
             log_folder,
             use_fp16=config.use_fp16,
             save=True,
-            distributed=True,
+            distributed=False,
             config=config,
         )
 
