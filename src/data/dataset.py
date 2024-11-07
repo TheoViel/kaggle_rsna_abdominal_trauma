@@ -164,6 +164,8 @@ class AbdominalDataset(Dataset):
         if (df_img[self.classes[tgt_idx]] == y_patient[tgt_idx]).max():
             df_img = df_img[df_img[self.classes[tgt_idx]] == y_patient[tgt_idx]]
         else:  # Class has no match, use argmax - should not happen
+#             print(patient, tgt, y_patient)
+            return self.__getitem__(idx + 1)  # skipping
             raise NotImplementedError
 
         # Restrict to segmentation > 0.9 for negatives
@@ -282,6 +284,7 @@ class AbdominalCropDataset(Dataset):
         train=False,
         use_soft_target=False,
         df_series=None,
+        spleen_only=False,
     ):
         """
         Constructor for the AbdominalCropDataset class.
@@ -312,6 +315,22 @@ class AbdominalCropDataset(Dataset):
         self.train = train
 
         self.sigmas = {"kidney": 0.15, "spleen": 0.2, "liver": 0.3}
+        
+        if spleen_only:
+            df_series = self.df_series
+            if train:
+                self.df_series = df_series[df_series['organ'] == "spleen"].reset_index(drop=True)
+            else:
+                img_paths = df_series[df_series['organ'] == "spleen"]["img_path"].values
+                mask_paths = df_series[df_series['organ'] == "spleen"]["mask_path"].values
+                tgts = df_series[df_series['organ'] == "spleen"]["target"].values
+
+                df_series['organ'] = "spleen"
+                df_series['img_path'] = np.repeat(img_paths, 3)
+                df_series['mask_path'] = np.repeat(mask_paths, 3)
+                df_series['target'] = np.repeat(tgts, 3)
+                self.df_series = df_series
+            self.targets = self.df_series["target"].values
 
     def __len__(self):
         """
@@ -818,6 +837,7 @@ class PatientFeatureDataset(Dataset):
         max_len=None,
         restrict=False,
         resize=None,
+        remove_smh=False,
     ):
         """
         Constructor.
@@ -831,11 +851,13 @@ class PatientFeatureDataset(Dataset):
             resize (tuple, optional): Tuple specifying the size for resizing features. Defaults to None.
         """
         self.df_patient = df_patient
-        self.fts, self.crop_fts = self.retrieve_features(df_img, exp_folders)
-        self.ids = list(self.fts.keys())
         self.max_len = max_len
         self.restrict = restrict
         self.resize = resize
+        self.remove_smh = remove_smh
+        
+        self.fts, self.crop_fts = self.retrieve_features(df_img, exp_folders)
+        self.ids = list(self.fts.keys())
 
     def retrieve_features(self, df, exp_folders):
         """
@@ -886,6 +908,9 @@ class PatientFeatureDataset(Dataset):
                 fts = np.concatenate(fts, axis=1)
             except Exception:
                 fts = np.zeros(len(df_val))
+                
+            if self.remove_smh:
+                is_smh_dict = df_val.groupby(["patient_id", "series"])["is_smh"].min().to_dict()
 
             df_val["index"] = np.arange(len(df_val))
             slice_starts = (
@@ -896,6 +921,9 @@ class PatientFeatureDataset(Dataset):
             ).to_dict()
 
             for k in slice_starts.keys():
+                if self.remove_smh and is_smh_dict[k]:
+                    continue
+
                 start = slice_starts[k]
                 end = slice_ends[k]
 
@@ -940,7 +968,8 @@ class PatientFeatureDataset(Dataset):
                         _ = features_dict[(p, s)]
                         crop_features_dict[(p, s)] = crop_scores[i]  # cls x score
                     except KeyError:
-                        print(p, s)
+                        pass  #
+#                         print(p, s)
 
         return features_dict, crop_features_dict
 

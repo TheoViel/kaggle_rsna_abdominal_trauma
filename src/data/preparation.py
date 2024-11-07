@@ -60,6 +60,15 @@ def prepare_data(data_path="../input/", with_seg=True):
         pandas DataFrame: Metadata containing patient information.
     """
     df_patient = pd.read_csv(os.path.join(data_path, "df_train.csv"))
+    
+    # FIX LABELS
+    df_fix = pd.read_csv(os.path.join(data_path, "train_2024_no_smh_fix.csv"))
+    df_fix['kidney'] = df_fix['kidney_low'] + df_fix['kidney_high'] * 2
+    df_fix['liver'] = df_fix['liver_low'] + df_fix['liver_high'] * 2
+    df_fix['spleen'] = df_fix['spleen_low'] + df_fix['spleen_high'] * 2
+
+    df_patient = pd.concat([df_fix, df_patient], ignore_index=True)
+    df_patient = df_patient.drop_duplicates(subset="patient_id", keep="first").reset_index(drop=True)
 
     if not with_seg:
         df_img = pd.read_csv(os.path.join(data_path, "df_images_train.csv"))
@@ -67,9 +76,7 @@ def prepare_data(data_path="../input/", with_seg=True):
 
     else:
         df_img = pd.read_csv(os.path.join(data_path, "df_images_train_with_seg.csv"))
-        df_img[
-            "pred_extravasation"
-        ] = 1  # df_img[["pred_liver", "pred_spleen", "pred_bowel", "pred_kidney"]].max(1)
+        df_img["pred_extravasation"] = 1  # sample anywhere
 
         df_img = df_img.merge(
             df_patient[["patient_id", "kidney", "liver", "spleen", "any_injury"]],
@@ -78,6 +85,29 @@ def prepare_data(data_path="../input/", with_seg=True):
         # "kidney_low", "kidney_high", "liver_low", "liver_high"]] for soft labels ?
         for col in ["kidney", "liver", "spleen"]:
             df_img[f"{col}_injury"] = (df_img[f"pred_{col}"] > 0.9) * df_img[col]
+
+    # Fix relabeling
+    df_img = df_img.merge(
+        df_patient[["patient_id", "bowel_healthy", "extravasation_healthy"]],
+        how="left",
+    )
+    df_img["extravasation_injury"] *= (1 - df_img["extravasation_healthy"])  # zero if healthy
+    df_img["bowel_injury"] *= (1 - df_img["bowel_healthy"])  # zero if healthy
+    df_img.drop(["bowel_healthy", "extravasation_healthy"], axis=1, inplace=True)
+
+    # SMH data
+    df_smh = pd.read_csv(data_path + 'smh_contribution_train.csv')
+    df_smh.columns = ['patient_id', 'series']
+    df_smh['is_smh'] = True
+
+    df_patient = df_patient.merge(
+        df_smh[["patient_id", "is_smh"]].drop_duplicates(keep="first"),
+        how="left"
+    )
+    df_patient['is_smh'] = df_patient['is_smh'].fillna(False)
+
+    df_img = df_img.merge(df_smh, on=("patient_id", "series"), how="left")
+    df_img['is_smh'] = df_img['is_smh'].fillna(False)
 
     return df_patient, df_img
 
@@ -221,7 +251,7 @@ def get_df_series(df_patient, df_img):
     df_series.drop(CROP_TARGETS, axis=1, inplace=True)
 
     df_series["img_path"] = (
-        "../input/crops/imgs/"
+        "../input/crops/imgs_2/"
         + df_series["patient_id"].astype(str)
         + "_"
         + df_series["series"].astype(str)

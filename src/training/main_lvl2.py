@@ -38,6 +38,7 @@ def train(
         max_len=config.max_len,
         resize=config.resize,
         restrict=config.restrict,
+        remove_smh=config.remove_smh,
     )
 
     val_dataset = PatientFeatureDataset(
@@ -139,6 +140,10 @@ def k_fold(config, df, df_img, log_folder=None, run=None):
 
             df_img_train = df_img[df_img["fold"] != fold].reset_index(drop=True)
             df_img_val = df_img[df_img["fold"] == fold].reset_index(drop=True)
+
+#             if config.remove_smh:
+#                 df_train = df_train[~df_train["is_smh"]].reset_index(drop=True)
+#                 df_img_train = df_img_train[~df_img_train["is_smh"]].reset_index(drop=True)
 
             if len(df) <= 1000:
                 df_train, df_val = df, df

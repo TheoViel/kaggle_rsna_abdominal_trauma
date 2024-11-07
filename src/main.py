@@ -98,6 +98,7 @@ class Config:
     k = 4
     folds_file = f"../input/folds_{k}.csv"
     selected_folds = [0, 1, 2, 3]
+    remove_smh = True
 
     # Model
     name = "maxvit_tiny_tf_512"  # convnextv2_tiny maxvit_tiny_tf_384

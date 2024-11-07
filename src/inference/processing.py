@@ -129,6 +129,8 @@ def process(patient, study, on_gpu=False, data_path="", crop_size=None, restrict
     # Restrict
     if restrict:
         sorted_imgs, n_imgs = restrict_imgs(sorted_imgs)
+#         sorted_imgs = sorted_imgs[-600:]
+#         n_imgs = len(sorted_imgs)
     else:
         n_imgs = len(sorted_imgs)
 

@@ -52,7 +52,7 @@ class PatientLoss(nn.Module):
         bce (nn.BCEWithLogitsLoss): BCE loss for bowel & extravasation.
         ce (SmoothCrossEntropyLoss): CE loss for spleen, liver & kidney.
     """
-    def __init__(self, eps=0.0, weighted=True, use_any=True):
+    def __init__(self, eps=0.0, weighted=True, use_any=True, spleen_only=False, bowel_extrav_only=False):
         """
         Constructor.
 
@@ -60,6 +60,7 @@ class PatientLoss(nn.Module):
             eps (float, optional): Smoothing factor for cross-entropy loss. Defaults to 0.0.
             weighted (bool, optional): Flag to apply class-weighted loss. Defaults to True.
             use_any (bool, optional): Flag to include 'any' label in the loss calculation. Defaults to True.
+            spleen_only (bool, optional): Only use spleen in the loss. Defaults to True.
         """
         super().__init__()
         self.eps = eps
@@ -67,6 +68,8 @@ class PatientLoss(nn.Module):
         self.bce = nn.BCEWithLogitsLoss(reduction="none")
         self.weighted = weighted
         self.use_any = use_any
+        self.spleen_only = spleen_only
+        self.bowel_extrav_only = bowel_extrav_only
 
     def _forward_soft(self, inputs, targets):
         """
@@ -120,7 +123,12 @@ class PatientLoss(nn.Module):
         )  # 1, 2, 4
         spleen_loss = self.ce(spleen_pred, spleen_target) * spleen_w
 
-        if self.use_any:
+        if self.spleen_only:
+            loss = spleen_loss
+#             loss = spleen_loss * 0.9 + 0.1 * (bowel_loss + extravasion_loss + kidney_loss + liver_loss)
+        elif bowel_extrav_only:
+            loss = (bowel_loss + extravasion_loss) / 2
+        elif self.use_any:
             any_target = (targets.amax(-1) > 0).float()
             any_pred = torch.stack(
                 [
@@ -199,7 +207,10 @@ class PatientLoss(nn.Module):
         spleen_w = torch.pow(w3, spleen_target) if self.weighted else 1  # 1, 2, 4
         spleen_loss = self.ce(spleen_pred, spleen_target) * spleen_w
 
-        if self.use_any:
+        if self.spleen_only:
+            loss = spleen_loss
+#             loss = spleen_loss * 0.9 + 0.1 * (bowel_loss + extravasion_loss + kidney_loss + liver_loss)
+        elif self.use_any:
             any_target = (targets.amax(-1) > 0).float()
             any_pred = torch.stack(
                 [
@@ -269,6 +280,8 @@ class AbdomenLoss(nn.Module):
                 eps=self.eps,
                 weighted=config.get("weighted", False),
                 use_any=config.get("use_any", False),
+                spleen_only=config.get("spleen_only", False),
+                bowel_extrav_only=config.get("bowel_extrav_only", False),
             )
         else:
             raise NotImplementedError

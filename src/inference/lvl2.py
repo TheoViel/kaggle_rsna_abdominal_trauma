@@ -65,7 +65,11 @@ class PatientFeatureInfDataset(Dataset):
         exp_names = [
             "_".join(exp_folder.split("/")[-3:-1]) for exp_folder, _ in exp_folders
         ]
-
+        
+        import re
+        exp_names = [re.sub('output_', '', f) for f in exp_names]
+#         print(exp_names)
+        
         for s in series:
             fts = []
             for exp_name, (exp_folder, mode) in zip(exp_names, exp_folders):

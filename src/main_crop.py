@@ -97,6 +97,8 @@ class Config:
     k = 4
     folds_file = f"../input/folds_{k}.csv"
     selected_folds = [0, 1, 2, 3]
+    remove_smh = True
+    spleen_only = False
 
     # Model
     name = "coatnet_1_rw_224"  # coat_lite_medium coat_lite_medium_384 coatnet_1_rw_224 coatnet_rmlp_1_rw2_224
@@ -145,7 +147,7 @@ class Config:
         "weight_decay": 0.0,
     }
 
-    epochs = 20
+    epochs = 60 if spleen_only else 20
 
     use_fp16 = True
     verbose = 1
